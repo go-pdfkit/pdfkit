@@ -1,0 +1,4 @@
+github.com/go-opentype/opentype v0.4.0 h1:os4hpek0Hwg32DjEaE6BgcWYihieUXvFk+cMcQCxpFU=
+github.com/go-opentype/opentype v0.4.0/go.mod h1:AOixevJf7XQaH7+WG+OMIOZEbYPXfMqklVk26Y6YTUU=
+rsc.io/pdf v0.1.1 h1:k1MczvYDUvJBe93bYd7wrZLLUEcLZAuF824/I4e5Xr4=
+rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=

@@ -1,0 +1,296 @@
+// Copyright (c) 2026 the go-pdfkit/pdfkit authors. All rights reserved.
+// Use of this source code is governed by a BSD-3-Clause license that can be
+// found in the LICENSE file at the root of this repository.
+
+package pdfkit
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"strconv"
+	"time"
+)
+
+// Options configures a Document. The zero value is valid and yields a
+// deterministic, uncompressed document with no timestamps.
+type Options struct {
+	// Title and Author populate the document information dictionary. Empty
+	// values are omitted.
+	Title  string
+	Author string
+
+	// Producer is the /Producer string in the information dictionary. When
+	// empty it defaults to DefaultProducer.
+	Producer string
+
+	// Now, when non-nil, is called once at Write time to stamp /CreationDate
+	// and /ModDate. When nil no dates are written, keeping output reproducible;
+	// tests should leave it nil.
+	Now func() time.Time
+
+	// Compress enables FlateDecode compression of content and embedded-font
+	// streams. Image streams choose their own filter regardless.
+	Compress bool
+
+	// ID, when both entries are non-nil, is used verbatim as the trailer /ID
+	// pair. When nil the ID is derived deterministically from the document
+	// body, so identical documents get identical IDs without a clock.
+	ID [2][]byte
+}
+
+// DefaultProducer is the /Producer value used when Options.Producer is empty.
+const DefaultProducer = "go-pdfkit/pdfkit"
+
+// Document is a PDF document under construction. Build it with New, append
+// pages with AddPage, then serialise with Write. It is not safe for concurrent
+// use.
+type Document struct {
+	opts   Options
+	pages  []*Page
+	fonts  []*Font            // registration order; index drives the /F<i> name
+	fontIx map[*Font]int      // font -> registration index
+	use    map[*Font]*fontUse // per-document glyph usage, keyed by font
+	images []*imageXObject    // registration order; index drives the /Im<i> name
+}
+
+// New returns a new, empty Document configured by opts.
+func New(opts Options) *Document {
+	return &Document{
+		opts:   opts,
+		fontIx: map[*Font]int{},
+		use:    map[*Font]*fontUse{},
+	}
+}
+
+// AddPage appends a page of the given size (in points; see PageSize helpers and
+// the standard sizes such as A4) and returns it for drawing.
+func (d *Document) AddPage(size PageSize) *Page {
+	p := &Page{
+		doc:        d,
+		width:      size.Width,
+		height:     size.Height,
+		usedFonts:  map[*Font]bool{},
+		usedImages: map[*imageXObject]bool{},
+		lineWidth:  1,
+	}
+	d.pages = append(d.pages, p)
+	return p
+}
+
+// registerFont ensures f has a document resource slot and usage record,
+// returning its /F<i> resource name.
+func (d *Document) registerFont(f *Font) string {
+	if _, ok := d.fontIx[f]; !ok {
+		d.fontIx[f] = len(d.fonts)
+		d.fonts = append(d.fonts, f)
+		d.use[f] = newFontUse()
+	}
+	return "F" + strconv.Itoa(d.fontIx[f])
+}
+
+// registerImage appends an image XObject and returns its /Im<i> resource name.
+func (d *Document) registerImage(x *imageXObject) string {
+	name := "Im" + strconv.Itoa(len(d.images))
+	d.images = append(d.images, x)
+	return name
+}
+
+// builder assembles the flat list of indirect objects and assigns their
+// numbers. Object number n lives at objs[n-1].
+type builder struct {
+	objs []pdfValue
+}
+
+// reserve allocates the next object number without a body; fill it with put.
+func (bd *builder) reserve() objRef {
+	bd.objs = append(bd.objs, nil)
+	return objRef(len(bd.objs))
+}
+
+// put stores v as the body of a previously reserved object.
+func (bd *builder) put(ref objRef, v pdfValue) { bd.objs[ref-1] = v }
+
+// add reserves and fills an object in one step, returning its reference.
+func (bd *builder) add(v pdfValue) objRef {
+	r := bd.reserve()
+	bd.put(r, v)
+	return r
+}
+
+// Write serialises the document to w as a complete PDF 1.7 file. It returns the
+// first write error encountered. Calling Write does not consume the document;
+// it may be written more than once.
+func (d *Document) Write(w io.Writer) error {
+	if len(d.pages) == 0 {
+		return fmt.Errorf("pdfkit: document has no pages")
+	}
+	bd := &builder{}
+
+	catalog := bd.reserve()
+	pagesRef := bd.reserve()
+
+	// Reserve a slot per page node up front so the /Kids array can reference
+	// them before their bodies exist.
+	pageRefs := make([]objRef, len(d.pages))
+	for i := range d.pages {
+		pageRefs[i] = bd.reserve()
+	}
+
+	// All drawing has already happened, so glyph and image usage is final:
+	// embed the fonts and images first, then reference them from the pages.
+	fontRefs := make(map[*Font]objRef, len(d.fonts))
+	for _, f := range d.fonts {
+		fontRefs[f] = d.buildFont(bd, f)
+	}
+	imageRefs := make(map[*imageXObject]objRef, len(d.images))
+	for _, x := range d.images {
+		imageRefs[x] = d.buildImage(bd, x)
+	}
+
+	for i, p := range d.pages {
+		content := p.finishContent()
+		cdict := newDict()
+		data := d.maybeFlate(cdict, content)
+		cstream := bd.add(&pdfStream{dict: cdict, data: data})
+
+		node := newDict()
+		node.set("Type", pdfName("Page"))
+		node.set("Parent", pagesRef)
+		node.set("MediaBox", pdfArray{pdfReal(0), pdfReal(0), pdfReal(p.width), pdfReal(p.height)})
+		node.set("Contents", cstream)
+		node.set("Resources", p.resources(fontRefs, imageRefs))
+		bd.put(pageRefs[i], node)
+	}
+
+	kids := make(pdfArray, len(pageRefs))
+	for i, r := range pageRefs {
+		kids[i] = r
+	}
+	pagesDict := newDict()
+	pagesDict.set("Type", pdfName("Pages"))
+	pagesDict.set("Kids", kids)
+	pagesDict.set("Count", pdfInt(len(pageRefs)))
+	bd.put(pagesRef, pagesDict)
+
+	catDict := newDict()
+	catDict.set("Type", pdfName("Catalog"))
+	catDict.set("Pages", pagesRef)
+	bd.put(catalog, catDict)
+
+	var info objRef
+	hasInfo := d.opts.Title != "" || d.opts.Author != "" || d.producer() != "" || d.opts.Now != nil
+	if hasInfo {
+		info = bd.add(d.infoDict())
+	}
+
+	return d.emit(w, bd, catalog, info, hasInfo)
+}
+
+// producer returns the effective /Producer string.
+func (d *Document) producer() string {
+	if d.opts.Producer != "" {
+		return d.opts.Producer
+	}
+	return DefaultProducer
+}
+
+// infoDict builds the document information dictionary.
+func (d *Document) infoDict() *pdfDict {
+	info := newDict()
+	if d.opts.Title != "" {
+		info.set("Title", pdfString(d.opts.Title))
+	}
+	if d.opts.Author != "" {
+		info.set("Author", pdfString(d.opts.Author))
+	}
+	if p := d.producer(); p != "" {
+		info.set("Producer", pdfString(p))
+	}
+	if d.opts.Now != nil {
+		date := pdfString(formatPDFDate(d.opts.Now()))
+		info.set("CreationDate", date)
+		info.set("ModDate", date)
+	}
+	return info
+}
+
+// emit writes the object bodies, the cross-reference table and the trailer.
+func (d *Document) emit(w io.Writer, bd *builder, catalog, info objRef, hasInfo bool) error {
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.7\n")
+	// A comment with high bytes marks the file as binary for transfer tools.
+	buf.WriteString("%\xe2\xe3\xcf\xd3\n")
+
+	offsets := make([]int, len(bd.objs))
+	for i, o := range bd.objs {
+		offsets[i] = buf.Len()
+		buf.WriteString(strconv.Itoa(i + 1))
+		buf.WriteString(" 0 obj\n")
+		o.encodePDF(&buf)
+		buf.WriteString("\nendobj\n")
+	}
+
+	xrefOff := buf.Len()
+	n := len(bd.objs) + 1
+	buf.WriteString("xref\n")
+	buf.WriteString("0 " + strconv.Itoa(n) + "\n")
+	buf.WriteString("0000000000 65535 f \n")
+	for _, off := range offsets {
+		buf.WriteString(fmt.Sprintf("%010d 00000 n \n", off))
+	}
+
+	trailer := newDict()
+	trailer.set("Size", pdfInt(n))
+	trailer.set("Root", catalog)
+	if hasInfo {
+		trailer.set("Info", info)
+	}
+	id := d.documentID(buf.Bytes())
+	trailer.set("ID", pdfArray{pdfHexString(id[0]), pdfHexString(id[1])})
+
+	buf.WriteString("trailer\n")
+	trailer.encodePDF(&buf)
+	buf.WriteString("\nstartxref\n")
+	buf.WriteString(strconv.Itoa(xrefOff))
+	buf.WriteString("\n%%EOF\n")
+
+	_, err := w.Write(buf.Bytes())
+	return err
+}
+
+// documentID returns the trailer /ID pair. A caller-supplied ID is used as-is;
+// otherwise it is derived from the document body so equal documents get equal
+// IDs without consulting a clock.
+func (d *Document) documentID(body []byte) [2][]byte {
+	if d.opts.ID[0] != nil && d.opts.ID[1] != nil {
+		return d.opts.ID
+	}
+	sum := sha256.Sum256(body)
+	h := sum[:16]
+	return [2][]byte{h, h}
+}
+
+// maybeFlate returns data unchanged, or FlateDecode-compressed with the filter
+// recorded on dict, according to Options.Compress.
+func (d *Document) maybeFlate(dict *pdfDict, data []byte) []byte {
+	if !d.opts.Compress {
+		return data
+	}
+	dict.set("Filter", pdfName("FlateDecode"))
+	return flateCompress(data)
+}
+
+// formatPDFDate renders t in PDF date syntax, e.g. D:20260728231500+02'00'.
+func formatPDFDate(t time.Time) string {
+	_, off := t.Zone()
+	sign := '+'
+	if off < 0 {
+		sign = '-'
+		off = -off
+	}
+	return fmt.Sprintf("D:%04d%02d%02d%02d%02d%02d%c%02d'%02d'",
+		t.Year(), int(t.Month()), t.Day(), t.Hour(), t.Minute(), t.Second(),
+		sign, off/3600, (off%3600)/60)
+}
