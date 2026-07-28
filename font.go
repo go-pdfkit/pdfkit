@@ -5,6 +5,7 @@
 package pdfkit
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/go-opentype/opentype"
@@ -15,46 +16,66 @@ import (
 // glyph usage is tracked separately by the Document. Build one with LoadFont.
 type Font struct {
 	ot       *opentype.Font
-	sf       *sfntFont
+	face     *opentype.Face
+	data     []byte // the whole sfnt, retained for the whole-font embed fallback
 	baseName string
+	isCFF    bool
 }
 
 // LoadFont parses a TrueType ('glyf') or OpenType/CFF ('OTTO'/CFF) font from
 // its raw bytes. The bytes are retained and must not be mutated afterwards.
+// Parsing, glyph indexing, metrics, shaping and subsetting are all delegated to
+// github.com/go-opentype/opentype; pdfkit keeps no private sfnt re-parse.
 func LoadFont(data []byte) (*Font, error) {
-	sf, err := parseSFNT(data)
-	if err != nil {
-		return nil, err
-	}
 	ot, err := opentype.Parse(data)
 	if err != nil {
 		return nil, fmt.Errorf("pdfkit: parse font: %w", err)
 	}
-	name := readPSName(sf)
+	// The face is sized to the em, so AdvanceIndexUnits returns advances in font
+	// units — exactly what a PDF /W width array wants — at the base (uninstanced)
+	// design.
+	face := ot.NewFace(ot.UnitsPerEm())
+
+	name := ""
+	if nameTable, ok := ot.Table("name"); ok {
+		name = readPSName(nameTable)
+	}
 	if name == "" {
 		name = "PDFKitFont"
 	}
-	return &Font{ot: ot, sf: sf, baseName: name}, nil
+	return &Font{ot: ot, face: face, data: data, baseName: name, isCFF: fontIsCFF(ot)}, nil
+}
+
+// fontIsCFF reports whether the font carries CFF or CFF2 (PostScript) outlines,
+// as opposed to TrueType 'glyf' outlines. It is read from the table directory
+// the font was parsed from.
+func fontIsCFF(ot *opentype.Font) bool {
+	if _, ok := ot.Table("CFF "); ok {
+		return true
+	}
+	_, ok := ot.Table("CFF2")
+	return ok
 }
 
 // IsCFF reports whether the font carries CFF/OpenType outlines (embedded as a
 // CIDFontType0), as opposed to TrueType 'glyf' outlines (CIDFontType2).
-func (f *Font) IsCFF() bool { return f.sf.isCFF }
+func (f *Font) IsCFF() bool { return f.isCFF }
 
 // UnitsPerEm returns the font's design grid size.
-func (f *Font) UnitsPerEm() int { return f.sf.unitsPerEm }
+func (f *Font) UnitsPerEm() int { return f.ot.UnitsPerEm() }
 
 // NumGlyphs returns the number of glyphs in the font.
-func (f *Font) NumGlyphs() int { return f.sf.numGlyphs }
+func (f *Font) NumGlyphs() int { return f.ot.NumGlyphs() }
 
 // BaseName returns the font's PostScript name, used for the PDF /BaseFont.
 func (f *Font) BaseName() string { return f.baseName }
 
 // glyphWidth1000 returns glyph gid's advance width in PDF glyph space (1000
-// units per em).
+// units per em). The advance comes from the go-opentype face by glyph index, so
+// it tracks the instanced design a PDF /W array must report.
 func (f *Font) glyphWidth1000(gid opentype.GlyphIndex) int {
-	adv := f.ot.GlyphAdvance(gid)
-	return int(float64(adv)*1000/float64(f.sf.unitsPerEm) + 0.5)
+	adv := f.face.AdvanceIndexUnits(gid)
+	return int(adv*1000/float64(f.ot.UnitsPerEm()) + 0.5)
 }
 
 // fontUse records, for one document, which glyphs of a font are drawn and the
@@ -99,12 +120,14 @@ func (u *fontUse) sortedGIDs() []opentype.GlyphIndex {
 	return out
 }
 
-// readPSName extracts nameID 6 (the PostScript name) from the name table,
+// u16 reads a big-endian uint16 at b[i:].
+func u16(b []byte, i int) int { return int(binary.BigEndian.Uint16(b[i:])) }
+
+// readPSName extracts nameID 6 (the PostScript name) from a raw 'name' table,
 // returning "" when it is absent or unreadable. Windows records are UTF-16BE;
 // Macintosh records are single-byte; PostScript names are ASCII either way.
-func readPSName(sf *sfntFont) string {
-	b, ok := sf.tables["name"]
-	if !ok || len(b) < 6 {
+func readPSName(b []byte) string {
+	if len(b) < 6 {
 		return ""
 	}
 	count := u16(b, 2)

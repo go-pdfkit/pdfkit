@@ -188,12 +188,12 @@ func (p *Page) TextShaped(x, y float64, s string, features ...string) error {
 	use := p.doc.use[f]
 	// A face sized to unitsPerEm has scale 1, so ShapePositioned reports offsets
 	// and advances directly in font units.
-	face := f.ot.NewFace(f.sf.unitsPerEm)
+	face := f.ot.NewFace(f.ot.UnitsPerEm())
 	run := face.ShapePositioned(s, features...)
 	runes := []rune(s)
 	aligned := len(run) == len(runes)
 
-	scale := p.fontSize / float64(f.sf.unitsPerEm)
+	scale := p.fontSize / float64(f.ot.UnitsPerEm())
 	p.op("", "BT")
 	p.emitTextState()
 	pen := 0

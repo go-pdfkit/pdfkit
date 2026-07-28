@@ -6,6 +6,79 @@ package pdfkit
 
 import "encoding/binary"
 
+// assembleSFNT packs tables into an sfnt container with the given version,
+// computing the directory, per-table checksums and the head checkSumAdjustment.
+// It is a test-only helper for synthesising fonts: the production code no longer
+// assembles sfnt containers (go-opentype's subsetters do), so this lives with the
+// synth builder rather than in the package.
+func assembleSFNT(version uint32, tables map[string][]byte) []byte {
+	tags := make([]string, 0, len(tables))
+	for t := range tables {
+		tags = append(tags, t)
+	}
+	for i := 1; i < len(tags); i++ {
+		for j := i; j > 0 && tags[j-1] > tags[j]; j-- {
+			tags[j-1], tags[j] = tags[j], tags[j-1]
+		}
+	}
+
+	n := len(tags)
+	entrySelector := 0
+	for (1 << (entrySelector + 1)) <= n {
+		entrySelector++
+	}
+	searchRange := (1 << entrySelector) * 16
+	rangeShift := n*16 - searchRange
+
+	headerLen := 12 + 16*n
+	offsets := make(map[string]int, n)
+	var body []byte
+	for _, t := range tags {
+		offsets[t] = headerLen + len(body)
+		body = append(body, tables[t]...)
+		for len(body)%4 != 0 {
+			body = append(body, 0)
+		}
+	}
+
+	out := make([]byte, headerLen)
+	binary.BigEndian.PutUint32(out[0:], version)
+	binary.BigEndian.PutUint16(out[4:], uint16(n))
+	binary.BigEndian.PutUint16(out[6:], uint16(searchRange))
+	binary.BigEndian.PutUint16(out[8:], uint16(entrySelector))
+	binary.BigEndian.PutUint16(out[10:], uint16(rangeShift))
+	for i, t := range tags {
+		rec := 12 + i*16
+		copy(out[rec:], t)
+		binary.BigEndian.PutUint32(out[rec+4:], tableChecksum(tables[t]))
+		binary.BigEndian.PutUint32(out[rec+8:], uint32(offsets[t]))
+		binary.BigEndian.PutUint32(out[rec+12:], uint32(len(tables[t])))
+	}
+	out = append(out, body...)
+
+	if headOff, ok := offsets["head"]; ok {
+		adj := 0xB1B0AFBA - tableChecksum(out)
+		binary.BigEndian.PutUint32(out[headOff+8:], adj)
+	}
+	return out
+}
+
+// tableChecksum is the sum (mod 2^32) of the data read as big-endian uint32s,
+// zero-padded to a multiple of four bytes.
+func tableChecksum(b []byte) uint32 {
+	var sum uint32
+	var i int
+	for ; i+4 <= len(b); i += 4 {
+		sum += binary.BigEndian.Uint32(b[i:])
+	}
+	if rem := len(b) - i; rem > 0 {
+		var tail [4]byte
+		copy(tail[:], b[i:])
+		sum += binary.BigEndian.Uint32(tail[:])
+	}
+	return sum
+}
+
 // bw is a minimal big-endian byte writer for synthesising font tables in tests.
 type bw struct{ b []byte }
 
@@ -234,7 +307,7 @@ func buildName(ps string) []byte {
 	t := &bw{}
 	t.u16(0) // format
 	t.u16(2) // count
-	t.u16(uint16(6+2*12))
+	t.u16(uint16(6 + 2*12))
 	// record 0: Windows (platform 3, enc 1, lang 0x409)
 	t.u16(3)
 	t.u16(1)

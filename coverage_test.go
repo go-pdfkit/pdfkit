@@ -5,93 +5,134 @@
 package pdfkit
 
 import (
+	"os"
 	"testing"
 
 	"github.com/go-opentype/opentype"
 )
 
-// validHead returns a minimal 54-byte head with unitsPerEm 1000 and short loca.
-func validHead() []byte {
-	b := make([]byte, 54)
-	u16w(b, 18, 1000) // unitsPerEm
-	return b
-}
-
-// validMaxp returns a 6-byte maxp declaring n glyphs.
-func validMaxp(n int) []byte {
-	b := make([]byte, 6)
-	u16w(b, 4, uint16(n))
-	return b
-}
-
-// validHhea returns a 36-byte hhea declaring numberOfHMetrics.
-func validHhea(m int) []byte {
-	b := make([]byte, 36)
-	u16w(b, 34, uint16(m))
-	return b
-}
-
-func u16w(b []byte, i int, v uint16) {
-	b[i] = byte(v >> 8)
-	b[i+1] = byte(v)
-}
-
-// TestParseSFNTSubParserErrors drives each sub-parser error return inside
-// parseSFNT by assembling a container with exactly one broken table.
-func TestParseSFNTSubParserErrors(t *testing.T) {
-	cases := map[string]map[string][]byte{
-		"bad head": {"head": make([]byte, 20)}, // >=12 so assembly can patch, <54 so parseHead fails
-		"bad maxp": {"head": validHead(), "maxp": make([]byte, 2)},
-		"bad hhea": {"head": validHead(), "maxp": validMaxp(2), "hhea": make([]byte, 4)},
-		"bad hmtx": {"head": validHead(), "maxp": validMaxp(2), "hhea": validHhea(2), "hmtx": make([]byte, 2)},
-		"no loca": {
-			"head": validHead(), "maxp": validMaxp(2), "hhea": validHhea(2),
-			"hmtx": make([]byte, 8),
-		},
-	}
-	for name, tables := range cases {
-		if _, err := parseSFNT(assembleSFNT(0x00010000, tables)); err == nil {
-			t.Errorf("%s: expected error", name)
-		}
-	}
-}
-
-// TestParseSFNTCFF2 covers the CFF2 outline-flavour branch: a container with a
-// CFF2 table is treated as CFF (isCFF true) and needs no loca/glyf.
-func TestParseSFNTCFF2(t *testing.T) {
-	tables := map[string][]byte{
-		"head": validHead(),
-		"maxp": validMaxp(2),
-		"hhea": validHhea(2),
-		"hmtx": make([]byte, 8),
-		"CFF2": {1, 2, 3, 4},
-	}
-	sf, err := parseSFNT(assembleSFNT(0x00010000, tables))
+// TestDescriptorCapHeightFallback covers both cap-height branches of
+// buildDescriptor: a font with an OS/2 cap height uses it, one without falls back
+// to the ascender.
+func TestDescriptorCapHeightFallback(t *testing.T) {
+	// With OS/2: cap height 700 (scaled by 1000/1000 = 700).
+	withOS2, err := LoadFont(synthTTF(defaultSynth()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sf.isCFF {
-		t.Error("CFF2 font should be marked CFF")
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	p.SetFont(withOS2, 12)
+	if err := p.Text(72, 700, "H"); err != nil {
+		t.Fatal(err)
+	}
+	r := reopen(t, doc)
+	if got := firstFontDict(r).Key("DescendantFonts").Index(0).
+		Key("FontDescriptor").Key("CapHeight").Int64(); got != 700 {
+		t.Errorf("CapHeight with OS/2 = %d, want 700", got)
+	}
+
+	// Without OS/2 or post: cap height is zero upstream, so pdfkit substitutes the
+	// ascender (800).
+	noOS2, err := LoadFont(synthTTF(synthOpts{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc2 := New(Options{})
+	p2 := doc2.AddPage(A4)
+	p2.SetFont(noOS2, 12)
+	if err := p2.Text(72, 700, "H"); err != nil {
+		t.Fatal(err)
+	}
+	r2 := reopen(t, doc2)
+	if got := firstFontDict(r2).Key("DescendantFonts").Index(0).
+		Key("FontDescriptor").Key("CapHeight").Int64(); got != 800 {
+		t.Errorf("CapHeight without OS/2 = %d, want ascender 800", got)
 	}
 }
 
-// TestSubsetOddGlyphPadding covers the 2-byte alignment padding of an
-// odd-length glyph in subsetTrueType.
-func TestSubsetOddGlyphPadding(t *testing.T) {
-	sf := &sfntFont{
-		numGlyphs: 2,
-		unitsPerEm: 1000,
-		loca:      []uint32{0, 3, 3}, // glyph 1 is three bytes long (odd)
-		tables: map[string][]byte{
-			"head": validHead(),
-			"hhea": validHhea(2),
-			"maxp": validMaxp(2),
-			"hmtx": make([]byte, 8),
-			"glyf": {0, 0, 0}, // three bytes
-		},
+// TestTrueTypeSubsetFallback drives the embedProgram fallback: an out-of-range
+// glyph id makes SubsetTrueType error, so pdfkit embeds the whole font program
+// with an Identity /CIDToGIDMap instead of a compact subset.
+func TestTrueTypeSubsetFallback(t *testing.T) {
+	f, err := LoadFont(synthTTF(defaultSynth()))
+	if err != nil {
+		t.Fatal(err)
 	}
-	out := subsetTrueType(sf, []opentype.GlyphIndex{1})
-	if len(out) == 0 {
-		t.Fatal("empty subset")
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	p.SetFont(f, 12)
+	if err := p.Text(72, 700, "H"); err != nil {
+		t.Fatal(err)
+	}
+	// Force an out-of-range glyph into the used set so SubsetTrueType fails.
+	doc.use[f].mark(opentype.GlyphIndex(f.NumGlyphs()+50), nil)
+
+	r := reopen(t, doc)
+	df := firstFontDict(r).Key("DescendantFonts").Index(0)
+	// The fallback embeds the whole font, so the map is the Identity name again.
+	if got := df.Key("CIDToGIDMap").Name(); got != "Identity" {
+		t.Errorf("fallback CIDToGIDMap = %q, want Identity", got)
+	}
+	prog := readStream(t, df.Key("FontDescriptor").Key("FontFile2"))
+	if len(prog) != len(f.data) {
+		t.Errorf("fallback FontFile2 len = %d, want whole font %d", len(prog), len(f.data))
+	}
+}
+
+// TestCFFSubsetFallbackWholeTable drives embedCFF's fallback via an out-of-range
+// glyph id (SubsetCFF rejects it), which embeds the whole 'CFF ' table.
+func TestCFFSubsetFallbackWholeTable(t *testing.T) {
+	otf, err := os.ReadFile("testdata/SourceSerif4-Regular.otf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := LoadFont(otf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	p.SetFont(f, 12)
+	if err := p.Text(72, 700, "H"); err != nil {
+		t.Fatal(err)
+	}
+	doc.use[f].mark(opentype.GlyphIndex(f.NumGlyphs()+50), nil)
+
+	r := reopen(t, doc)
+	ff := firstFontDict(r).Key("DescendantFonts").Index(0).
+		Key("FontDescriptor").Key("FontFile3")
+	whole, _ := f.ot.Table("CFF ")
+	if got := readStream(t, ff); len(got) != len(whole) {
+		t.Errorf("fallback FontFile3 len = %d, want whole CFF %d", len(got), len(whole))
+	}
+}
+
+// TestCFF2WholeTableFallback loads a synthetic CFF2 (variable) font, which the
+// preserve-numbering CFF subsetter cannot handle, and checks it is recognised as
+// CFF and embedded whole via the 'CFF2' branch of wholeCFF.
+func TestCFF2WholeTableFallback(t *testing.T) {
+	f, err := LoadFont(synthCFF2())
+	if err != nil {
+		t.Fatalf("parse synthetic CFF2: %v", err)
+	}
+	if !f.IsCFF() {
+		t.Fatal("CFF2 font should report IsCFF")
+	}
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	p.SetFont(f, 12)
+	if err := p.Text(72, 700, "A"); err != nil {
+		t.Fatal(err)
+	}
+	r := reopen(t, doc)
+	df := firstFontDict(r).Key("DescendantFonts").Index(0)
+	if got := df.Key("Subtype").Name(); got != "CIDFontType0" {
+		t.Errorf("CFF2 descendant Subtype = %q", got)
+	}
+	ff := df.Key("FontDescriptor").Key("FontFile3")
+	whole, _ := f.ot.Table("CFF2")
+	if got := readStream(t, ff); len(got) != len(whole) {
+		t.Errorf("CFF2 FontFile3 len = %d, want whole CFF2 %d", len(got), len(whole))
 	}
 }

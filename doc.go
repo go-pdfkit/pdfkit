@@ -31,11 +31,13 @@
 // LoadFont parses a font blob once; a Font is immutable and may be shared.
 // SetFont selects it for a page, then Text draws a left-to-right run. TextShaped
 // runs the go-opentype shaper (GSUB/GPOS) for complex scripts. Every embedded
-// font is written as a subset with Identity-H encoding, an Identity
-// CIDToGIDMap, a per-glyph /W width array and a /ToUnicode CMap so copy and
-// paste recover the original text. TrueType outlines embed as a subsetted
-// FontFile2 / CIDFontType2; CFF/OpenType outlines embed as a FontFile3 /
-// CIDFontType0.
+// font is written as a subset with Identity-H encoding, a per-glyph /W width
+// array and a /ToUnicode CMap so copy and paste recover the original text.
+// TrueType outlines embed as a subsetted FontFile2 / CIDFontType2 with a
+// /CIDToGIDMap stream (the subset renumbers glyphs, so the map sends each CID —
+// the original glyph id — to its subset id); CFF/OpenType outlines embed as a
+// charstring-subsetted FontFile3 / CIDFontType0 whose glyph numbering is
+// preserved, so an Identity /CIDToGIDMap suffices.
 //
 // # Determinism
 //
@@ -43,12 +45,14 @@
 // /ID, so identical inputs produce byte-identical documents. Set Options.Now to
 // stamp creation and modification dates.
 //
-// # Missing upstream primitives
+// # Font embedding
 //
-// go-opentype/opentype decodes a font fully but does not expose the raw table
-// bytes, the units-per-em, the glyf/loca arrays or a subsetting export that a
-// PDF embedder needs, so pdfkit reparses the sfnt container it is handed (see
-// sfnt.go) and implements TrueType glyf subsetting itself (see subset.go). CFF
-// charstring subsetting is not yet implemented: a CFF font embeds its whole
-// 'CFF ' table.
+// go-opentype/opentype supplies every primitive PDF embedding needs: the
+// descriptor scalars (units-per-em, bounding box, ascent/descent, cap height,
+// italic angle, flags, StemV), the by-glyph advances for the /W array, and the
+// glyph subsetters. TrueType 'glyf' fonts are subsetted with
+// Font.SubsetTrueType and CFF fonts with Font.SubsetCFF, so pdfkit keeps no
+// private sfnt re-parse or subsetter of its own. A CID-keyed CFF or a CFF2
+// (variable) font, which the preserve-numbering CFF subsetter does not handle,
+// gracefully falls back to embedding its whole 'CFF '/'CFF2' table.
 package pdfkit

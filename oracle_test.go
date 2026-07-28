@@ -75,20 +75,39 @@ func TestOracleTrueType(t *testing.T) {
 	if got := df.Key("Subtype").Name(); got != "CIDFontType2" {
 		t.Errorf("descendant Subtype = %q", got)
 	}
-	if got := df.Key("CIDToGIDMap").Name(); got != "Identity" {
-		t.Errorf("CIDToGIDMap = %q", got)
+
+	// The subset renumbers glyphs, so /CIDToGIDMap is a stream mapping each CID
+	// (the original glyph id) to its subset glyph id. Read it back as the oracle's
+	// own view of the mapping.
+	c2g := readStream(t, df.Key("CIDToGIDMap"))
+	cidToGID := func(cid int) opentype.GlyphIndex {
+		if 2*cid+1 >= len(c2g) {
+			return 0
+		}
+		return opentype.GlyphIndex(int(c2g[2*cid])<<8 | int(c2g[2*cid+1]))
 	}
 
-	// The embedded, subsetted TrueType program must itself be a parseable font
-	// carrying the glyphs we used (H=1, i=2, A=3, plus A's components).
+	// The embedded, subsetted TrueType program must itself be a parseable font in
+	// which each used glyph, at its remapped id, is contour-identical to the
+	// original — proving the subset kept the outlines intact.
 	prog := readStream(t, df.Key("FontDescriptor").Key("FontFile2"))
 	sub, err := opentype.Parse(prog)
 	if err != nil {
 		t.Fatalf("re-parse embedded subset: %v", err)
 	}
+	orig := mustLoadOT(t, synthTTF(defaultSynth()))
 	for _, r := range "HiA" {
-		if gid, ok := sub.GlyphIndex(r); !ok || gid == 0 {
-			t.Errorf("subset missing glyph for %q", r)
+		oldGID, ok := orig.GlyphIndex(r)
+		if !ok || oldGID == 0 {
+			t.Fatalf("original missing glyph for %q", r)
+		}
+		newGID := cidToGID(int(oldGID))
+		if newGID == 0 {
+			t.Errorf("CIDToGIDMap maps %q (cid %d) to .notdef", r, oldGID)
+			continue
+		}
+		if !sameGlyphRender(orig, oldGID, sub, newGID) {
+			t.Errorf("subset glyph for %q (old %d -> new %d) not contour-intact", r, oldGID, newGID)
 		}
 	}
 
@@ -126,18 +145,99 @@ func TestOracleCFF(t *testing.T) {
 	if got := df.Key("Subtype").Name(); got != "CIDFontType0" {
 		t.Errorf("descendant Subtype = %q", got)
 	}
+	// A CFF program keeps its glyph numbering, so an Identity /CIDToGIDMap suffices.
+	if got := df.Key("CIDToGIDMap").Name(); got != "Identity" {
+		t.Errorf("CFF CIDToGIDMap = %q, want Identity", got)
+	}
 	// FontFile3 carries the CFF program; its subtype must mark it CIDFontType0C.
 	ff := df.Key("FontDescriptor").Key("FontFile3")
 	if got := ff.Key("Subtype").Name(); got != "CIDFontType0C" {
 		t.Errorf("FontFile3 Subtype = %q", got)
 	}
-	if len(readStream(t, ff)) == 0 {
-		t.Error("empty embedded CFF program")
+	prog := readStream(t, ff)
+	if len(prog) == 0 {
+		t.Fatal("empty embedded CFF program")
 	}
+
+	// pdfkit now truly subsets CFF charstrings: the embedded 'CFF ' program must be
+	// smaller than the whole table it was cut from.
+	whole, ok := f.ot.Table("CFF ")
+	if !ok {
+		t.Fatal("original font has no CFF table")
+	}
+	if len(prog) >= len(whole) {
+		t.Errorf("CFF subset not smaller: embedded %d bytes, whole table %d", len(prog), len(whole))
+	}
+
+	// The subset must re-parse (wrapped back into an OTF) and, because CFF
+	// subsetting preserves glyph numbering, each used glyph must render identically
+	// to the original at its original id — proving the kept glyphs are intact.
+	subF := mustLoadOT(t, wrapCFFinOTF(t, f.ot, prog))
+	for _, ru := range "Hello" {
+		gid, okg := f.ot.GlyphIndex(ru)
+		if !okg || gid == 0 {
+			t.Fatalf("original missing glyph for %q", ru)
+		}
+		if !sameGlyphRender(f.ot, gid, subF, gid) {
+			t.Errorf("subset CFF glyph for %q (gid %d) not contour-intact", ru, gid)
+		}
+	}
+
 	tu := string(readStream(t, fd.Key("ToUnicode")))
 	if !strings.Contains(tu, "beginbfchar") {
 		t.Error("ToUnicode has no bfchar section")
 	}
+}
+
+// mustLoadOT parses raw font bytes with go-opentype, failing the test on error.
+func mustLoadOT(t *testing.T, data []byte) *opentype.Font {
+	t.Helper()
+	f, err := opentype.Parse(data)
+	if err != nil {
+		t.Fatalf("opentype.Parse: %v", err)
+	}
+	return f
+}
+
+// wrapCFFinOTF rebuilds an OTTO sfnt from src's container tables with cff swapped
+// in for the 'CFF ' table, so a bare subset CFF program can be re-parsed by
+// go-opentype. src's other tables (head, hhea, maxp, hmtx, cmap, ...) are copied
+// verbatim; the subset preserves glyph numbering, so they stay valid.
+func wrapCFFinOTF(t *testing.T, src *opentype.Font, cff []byte) []byte {
+	t.Helper()
+	tables := map[string][]byte{"CFF ": cff}
+	for _, tag := range src.TableTags() {
+		if tag == "CFF " {
+			continue
+		}
+		b, _ := src.Table(tag)
+		tables[tag] = b
+	}
+	return assembleSFNT(0x4F54544F, tables) // OTTO
+}
+
+// sameGlyphRender reports whether glyph a in font fa and glyph b in font fb
+// rasterise to the same alpha mask at a common size — a contour-level equality
+// check independent of glyph numbering.
+func sameGlyphRender(fa *opentype.Font, a opentype.GlyphIndex, fb *opentype.Font, b opentype.GlyphIndex) bool {
+	const size = 64
+	ba, ma, _, _, oka := fa.NewFace(size).GlyphMaskIndex(a, 0, 0)
+	bb, mb, _, _, okb := fb.NewFace(size).GlyphMaskIndex(b, 0, 0)
+	if oka != okb {
+		return false
+	}
+	if !oka { // both have no outline (e.g. a space): trivially equal
+		return true
+	}
+	if ba != bb || len(ma.Pix) != len(mb.Pix) {
+		return false
+	}
+	for i := range ma.Pix {
+		if ma.Pix[i] != mb.Pix[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestOracleGraphicsAndImage(t *testing.T) {
