@@ -8,10 +8,10 @@ import "testing"
 
 func TestLoadFontErrors(t *testing.T) {
 	if _, err := LoadFont([]byte("not a font")); err == nil {
-		t.Error("expected sfnt parse error")
+		t.Error("expected opentype parse error")
 	}
-	// A valid sfnt container missing cmap: parseSFNT accepts it but opentype
-	// (which requires cmap) rejects it, covering the opentype-error branch.
+	// A valid sfnt container missing cmap: opentype (which requires a cmap)
+	// rejects it, covering LoadFont's error branch.
 	if _, err := LoadFont(synthTTF(synthOpts{noCmap: true})); err == nil {
 		t.Error("expected opentype parse error for missing cmap")
 	}
@@ -72,20 +72,19 @@ func TestFontUse(t *testing.T) {
 }
 
 func TestReadPSNameEdgeCases(t *testing.T) {
-	// No name table -> empty.
-	if s := readPSName(&sfntFont{tables: map[string][]byte{}}); s != "" {
+	// Empty / too-short table -> empty.
+	if s := readPSName(nil); s != "" {
 		t.Errorf("no-name = %q", s)
 	}
-	// Header too short.
-	if s := readPSName(&sfntFont{tables: map[string][]byte{"name": {0, 0}}}); s != "" {
+	if s := readPSName([]byte{0, 0}); s != "" {
 		t.Errorf("short header = %q", s)
 	}
 
 	// Build a name table with: a nameID!=6 record, an out-of-range record, and
 	// a platform-0 (Unicode) nameID-6 record.
 	w := &bw{}
-	w.u16(0)             // format
-	w.u16(3)             // count (claims 3 records)
+	w.u16(0)                // format
+	w.u16(3)                // count (claims 3 records)
 	w.u16(uint16(6 + 3*12)) // storage offset
 	// record 0: nameID 1 (skipped)
 	w.u16(3); w.u16(1); w.u16(0); w.u16(1); w.u16(4); w.u16(0)
@@ -95,7 +94,7 @@ func TestReadPSNameEdgeCases(t *testing.T) {
 	w.u16(1); w.u16(0); w.u16(0); w.u16(6); w.u16(0xffff); w.u16(0xffff)
 	storage := []byte{0, 'U', 0, 'n', 0, 'i'}
 	w.b = append(w.b, storage...)
-	if s := readPSName(&sfntFont{tables: map[string][]byte{"name": w.b}}); s != "Uni" {
+	if s := readPSName(w.b); s != "Uni" {
 		t.Errorf("platform-0 name = %q, want Uni", s)
 	}
 
@@ -104,7 +103,7 @@ func TestReadPSNameEdgeCases(t *testing.T) {
 	short.u16(0)
 	short.u16(10) // 10 records but no record bytes follow
 	short.u16(6)
-	if s := readPSName(&sfntFont{tables: map[string][]byte{"name": short.b}}); s != "" {
+	if s := readPSName(short.b); s != "" {
 		t.Errorf("truncated records = %q", s)
 	}
 }

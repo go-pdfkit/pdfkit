@@ -26,10 +26,11 @@ Go-idiomatic rather than a gem port.
   constant-alpha transparency via ExtGState.
 - **Text** — embeds fonts as **Type0 (Identity-H)** composite fonts with glyph
   **subsetting**, a per-glyph `/W` width array and a `/ToUnicode` CMap for
-  copy/paste. TrueType `glyf` → **FontFile2 / CIDFontType2**; CFF/OpenType →
-  **FontFile3 / CIDFontType0**. Char/word spacing, leading, render modes, a
-  simple wrapping helper, and an optional **shaped-text** API (GSUB/GPOS via
-  go-opentype) for Arabic/Indic/CJK.
+  copy/paste. TrueType `glyf` → **FontFile2 / CIDFontType2** (compact subset with
+  a `/CIDToGIDMap` stream); CFF/OpenType → **FontFile3 / CIDFontType0** with
+  **CFF charstring subsetting** (only the used glyphs' charstrings are embedded).
+  Char/word spacing, leading, render modes, a simple wrapping helper, and an
+  optional **shaped-text** API (GSUB/GPOS via go-opentype) for Arabic/Indic/CJK.
 - **Images** — JPEG embedded directly (DCTDecode); PNG and any `image.Image`
   rasterised as XObjects (FlateDecode) with an `/SMask` for alpha.
 - **Pages** — standard sizes (A3/A4/A5/Letter/Legal/Tabloid), portrait/landscape,
@@ -85,19 +86,24 @@ default `Text` path stays a simple left-to-right cmap mapping.
 `GOWORK=off CGO_ENABLED=0 go test ./...` runs the suite at **exact 100%
 statement coverage**. Correctness is checked against an independent parser:
 generated documents are re-opened with [`rsc.io/pdf`](https://pkg.go.dev/rsc.io/pdf)
-and their structure verified, and the embedded TrueType subset is re-parsed with
-go-opentype to confirm it still contains the glyphs that were drawn. Tests are
-deterministic and network-free: they use a synthesised TrueType font and a
-bundled OFL OpenType/CFF font.
+and their structure verified. The embedded TrueType subset is re-parsed with
+go-opentype and each drawn glyph, resolved through the `/CIDToGIDMap`, is
+confirmed contour-identical to the original; the embedded CFF subset is asserted
+smaller than the whole `CFF` table and re-parsed so each kept glyph still renders
+intact. Tests are deterministic and network-free: they use a synthesised
+TrueType font, a synthesised CFF2 font and a bundled OFL OpenType/CFF font.
 
 ## Scope and limitations
 
-- CFF/OpenType fonts embed their **whole `CFF ` table** (charstring subsetting is
-  not yet implemented); TrueType fonts are fully subsetted.
-- `go-opentype` exposes no raw table bytes, units-per-em, glyf/loca arrays or a
-  subsetting export, so `pdfkit` reparses the sfnt container it is handed and
-  implements TrueType subsetting itself.
-- Encryption, tagged/PDF-A, forms and annotations are out of scope for v0.1.
+- Both outline flavours are **subsetted**: TrueType `glyf` fonts via
+  `go-opentype`'s `SubsetTrueType` (compact renumbering + a `/CIDToGIDMap`
+  stream) and CFF/OpenType fonts via `SubsetCFF` (charstring subsetting,
+  glyph numbering preserved). All subsetting and the font-descriptor metrics come
+  straight from `go-opentype`; `pdfkit` keeps no private sfnt re-parse.
+- A **CID-keyed CFF** or a **CFF2 (variable)** font cannot be charstring-subsetted
+  by the preserve-numbering path, so it gracefully falls back to embedding the
+  whole `CFF`/`CFF2` table.
+- Encryption, tagged/PDF-A, forms and annotations are out of scope for v0.2.
 
 ## License
 
