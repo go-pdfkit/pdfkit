@@ -45,6 +45,16 @@
 // /ID, so identical inputs produce byte-identical documents. Set Options.Now to
 // stamp creation and modification dates.
 //
+// # Widget bridge
+//
+// AddWidget and AddWidgetVector "print" a github.com/go-widgets/toolkit widget
+// tree onto a page. AddWidget lays the tree out at the target size, renders it
+// through a go-widgets/painter PixelPainter and places the result as an image
+// XObject — any UI, exactly as it draws on screen. AddWidgetVector runs the same
+// tree through a painter that emits PDF vector operators instead of pixels, so
+// fills and strokes stay crisp and text drawn through the toolkit's built-in
+// font becomes real, selectable PDF text (it needs a WidgetOptions.Font).
+//
 // # Font embedding
 //
 // go-opentype/opentype supplies every primitive PDF embedding needs: the

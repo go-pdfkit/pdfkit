@@ -1,4 +1,14 @@
+github.com/go-opentype/bidi v0.2.0 h1:ze8chEUw22c98LZug2GByD9cc3Zuq0qARxrSLGj1ioQ=
+github.com/go-opentype/bidi v0.2.0/go.mod h1:PaWZ9P93jwQaXsEvAoSxvJ3P70S9f8TuFGDstTvcfmM=
+github.com/go-opentype/fonts v0.4.1 h1:f2vVTa0QXiLjW2A5TwyPx0PFgQa9GYlysfgR5C2bbsQ=
+github.com/go-opentype/fonts v0.4.1/go.mod h1:C6yQL2apHItfEZ5hztpsHF0S5mlX/hklLlq/Z5fRG/g=
 github.com/go-opentype/opentype v0.5.0 h1:++VoqgbXgYACyTTNzUAivoxW9M3m2gxWMAn6bIY7DXg=
 github.com/go-opentype/opentype v0.5.0/go.mod h1:AOixevJf7XQaH7+WG+OMIOZEbYPXfMqklVk26Y6YTUU=
+github.com/go-opentype/shape v0.3.2 h1:qaaUhg9m6yusm6MCfa07DhZ5Z0ZxOmGwLxHklVeLUUA=
+github.com/go-opentype/shape v0.3.2/go.mod h1:oVq3kFGx6kIHKrFXfxqnp8JUYR7k9NzeY+E17LYHhrU=
+github.com/go-widgets/painter v0.1.3 h1:50oeDH76vMUlxQ8117wMFf5MGuAJlq5n2JeVS+QlpnM=
+github.com/go-widgets/painter v0.1.3/go.mod h1:ccmlkH2UmcXQh6rt9Fu2eDt2RI0B5V0POaGmUKeW0EQ=
+github.com/go-widgets/toolkit v0.76.0 h1:A9eJHmTPZpJeQJ+7e22NxLm9Hqa/JiQ4pwBWub0Fq2c=
+github.com/go-widgets/toolkit v0.76.0/go.mod h1:AZJWQh4rQrFqwEuPjluV9eGnLqA+XnfrxCcvTs5C+LU=
 rsc.io/pdf v0.1.1 h1:k1MczvYDUvJBe93bYd7wrZLLUEcLZAuF824/I4e5Xr4=
 rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=
