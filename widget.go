@@ -168,9 +168,63 @@ type vectorPainter struct {
 	rh     float64 // target rect height, in points
 	sx, sy float64 // points per painter pixel (x and y)
 	w, h   int     // canvas size, in painter pixels
-	font   *Font   // font used for text-show operators
+	font   *Font   // fallback font for the plain Text primitive (bitmap-font runs)
+
+	// faceFonts memoises the *Font embedded for each painter.Face drawn through
+	// TextFace, so a TrueType-font widget tree embeds each face once and re-uses
+	// it. A face whose bytes fail to parse is cached as a nil entry so the parse
+	// is not retried on every run.
+	faceFonts map[painter.Face]*Font
 
 	clipDepth int // balanced q/Q depth pushed by PushClip
+}
+
+// faceFont returns the embedded *Font for face, loading (and memoising) it from
+// the face's own sfnt bytes on first use. It returns nil when those bytes do not
+// parse, so the caller can fall back to the painter's plain-Text font.
+func (v *vectorPainter) faceFont(face painter.Face) *Font {
+	if f, ok := v.faceFonts[face]; ok {
+		return f
+	}
+	if v.faceFonts == nil {
+		v.faceFonts = map[painter.Face]*Font{}
+	}
+	f, err := LoadFont(face.FontData())
+	if err != nil {
+		v.faceFonts[face] = nil
+		return nil
+	}
+	v.faceFonts[face] = f
+	return f
+}
+
+// TextFace draws s as selectable PDF text in face — the painter.FacePainter
+// seam a TrueType/OpenType toolkit font hands its run to. The face's own sfnt
+// bytes are embedded (so glyph shapes AND advances match the on-screen layout)
+// and the run is emitted at the face's pixel size, so a TrueType-font widget
+// label becomes real, selectable Type0 text rather than a rasterised image.
+//
+// The painter positions text by its top-left corner and PDF by the baseline, so
+// the origin drops by the face ascent. When the face bytes do not parse, it
+// degrades to the plain Text primitive (the fallback font) so a broken face
+// still yields some selectable text rather than nothing.
+func (v *vectorPainter) TextFace(x, y int, s string, face painter.Face, ink painter.RGBA) {
+	if ink.A == 0 || s == "" {
+		return
+	}
+	f := v.faceFont(face)
+	if f == nil {
+		v.Text(x, y, s, ink)
+		return
+	}
+	v.page.Save()
+	v.applyAlpha(ink)
+	v.page.SetFillColor(RGB8(ink.R, ink.G, ink.B))
+	v.page.SetFont(f, float64(face.SizePx())*v.sy)
+	baseline := v.fy(y + face.Ascent())
+	// The font was just set, so Text cannot return the no-font error.
+	_ = v.page.Text(v.fx(x), baseline, s)
+	v.page.Restore()
 }
 
 // fx maps a painter x (pixels) to a PDF x (points).

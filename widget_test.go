@@ -7,6 +7,7 @@ package pdfkit
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-widgets/painter"
@@ -135,6 +136,141 @@ func TestAddWidgetVector(t *testing.T) {
 		}
 	}
 }
+
+// TestAddWidgetVectorTrueTypeSelectable is the end-to-end proof of the
+// FacePainter seam: when the toolkit's active font is a real TrueType face
+// (NewTrueTypeFont), a widget's label renders through AddWidgetVector as REAL,
+// SELECTABLE Type0 text embedded in that face — not a rasterised image. It
+// reuses the synthetic TrueType font for both the toolkit face and the fallback
+// pdfkit Font, then reparses the output with the independent rsc.io/pdf reader.
+func TestAddWidgetVectorTrueTypeSelectable(t *testing.T) {
+	ttf := synthTTF(defaultSynth()) // glyphs for 'H','i','A'
+
+	// Make a TrueType face the whole toolkit UI's active font. Draw of any text
+	// now routes through truetypeFont.Draw -> painter.FacePainter.TextFace.
+	ttFace, err := toolkit.NewTrueTypeFont(ttf, 16)
+	if err != nil {
+		t.Fatalf("toolkit.NewTrueTypeFont: %v", err)
+	}
+	toolkit.SetFont(ttFace)
+	defer toolkit.SetFont(nil) // restore the bitmap default for the other tests
+
+	fallback, err := LoadFont(ttf) // required by the AddWidgetVector API
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	opts := &WidgetOptions{Scale: 2, Font: fallback}
+	// buildScene draws the label "Hi" (and a button labelled "Hi"): both glyphs
+	// exist in the synthetic face.
+	if err := p.AddWidgetVector(buildScene(), Rect{X: 40, Y: 400, Width: 240, Height: 140}, opts); err != nil {
+		t.Fatalf("AddWidgetVector: %v", err)
+	}
+	r := reopen(t, doc)
+
+	// The embedded face is a Type0 composite font with a TrueType (CIDFontType2)
+	// descendant — the signature of real, selectable text, not a bitmap.
+	fd := firstFontDict(r)
+	if got := fd.Key("Subtype").Name(); got != "Type0" {
+		t.Fatalf("font Subtype = %q, want Type0 (selectable text, not an image)", got)
+	}
+	if got := fd.Key("DescendantFonts").Index(0).Key("Subtype").Name(); got != "CIDFontType2" {
+		t.Errorf("descendant Subtype = %q, want CIDFontType2 (embedded TrueType)", got)
+	}
+
+	content := contentBytes(t, r)
+	// A text-show operator must be present, and the run must NOT have been placed
+	// as an image XObject (no `Do`): that is the "real text, not a picture" proof.
+	if !bytes.Contains(content, []byte("Tj")) {
+		t.Error("vector content stream has no Tj: the label did not become text")
+	}
+	if bytes.Contains(content, []byte(" Do\n")) {
+		t.Error("vector content stream draws an XObject: text was rasterised, not shown as text")
+	}
+	if x := r.Page(1).V.Key("Resources").Key("XObject"); x.Kind() != pdf.Null {
+		t.Error("page has an XObject resource: the vector path should place no image")
+	}
+
+	// The label glyph codes ('H'=GID 1, 'i'=GID 2 in the synthetic face) must be
+	// shown, and the /ToUnicode CMap must map them back to "Hi" so a reader can
+	// copy the real text out.
+	for _, code := range []string{"0001", "0002"} {
+		if !bytes.Contains(content, []byte(code)) {
+			t.Errorf("content stream missing glyph code <%s> for the label", code)
+		}
+	}
+	tu := string(readStream(t, fd.Key("ToUnicode")))
+	for code, want := range map[string]string{"<0001> <0048>": "H", "<0002> <0069>": "i"} {
+		if !strings.Contains(tu, code) {
+			t.Errorf("ToUnicode missing %q (maps glyph to %q) — text would not be selectable as %q", code, want, want)
+		}
+	}
+}
+
+// TestVectorPainterTextFaceFallback covers TextFace's degrade-to-fallback path:
+// a face whose sfnt bytes do not parse cannot be embedded, so the run is emitted
+// through the plain Text primitive (the painter's fallback font) instead of
+// nothing. It also covers the empty-string / transparent-ink early return and
+// the face-font memoisation (a second draw of the same face hits the cache).
+func TestVectorPainterTextFaceFallback(t *testing.T) {
+	doc, vp := newTestVectorPainter(t)
+	ink := painter.RGB(10, 20, 30)
+
+	// Early returns: no text and no ink both no-op.
+	vp.TextFace(0, 0, "", brokenFace{}, ink)
+	vp.TextFace(0, 0, "x", brokenFace{}, painter.RGBA{})
+
+	// A broken face parses to nothing, so TextFace falls back to v.Text (the
+	// fallback pdfkit font), which still yields selectable text.
+	vp.TextFace(4, 12, "Hi", brokenFace{}, ink)
+	// Drawing the same broken face again exercises the memoised nil entry.
+	vp.TextFace(4, 24, "Hi", brokenFace{}, ink)
+
+	r := reopen(t, doc)
+	if !bytes.Contains(contentBytes(t, r), []byte("Tj")) {
+		t.Error("fallback TextFace produced no text-show operator")
+	}
+}
+
+// brokenFace is a painter.Face whose FontData does not parse as a font, so
+// pdfkit cannot embed it and must fall back to the painter's own font.
+type brokenFace struct{}
+
+func (brokenFace) FontData() []byte { return []byte("not a font") }
+func (brokenFace) SizePx() int      { return 12 }
+func (brokenFace) Ascent() int      { return 10 }
+
+// TestVectorPainterTextFaceEmbedsFace drives TextFace with a parseable face
+// directly (bypassing the toolkit) and confirms the face itself is embedded as
+// a Type0 font and cached across calls.
+func TestVectorPainterTextFaceEmbedsFace(t *testing.T) {
+	doc, vp := newTestVectorPainter(t)
+	face := &fakeFace{data: synthTTF(defaultSynth()), size: 16, ascent: 13}
+	ink := painter.RGB(0, 0, 0)
+
+	vp.TextFace(10, 20, "Hi", face, ink) // loads + embeds
+	vp.TextFace(10, 40, "iH", face, ink) // cache hit (same face pointer)
+
+	if len(vp.faceFonts) != 1 {
+		t.Fatalf("faceFonts cached %d fonts, want 1 (memoised)", len(vp.faceFonts))
+	}
+	r := reopen(t, doc)
+	if got := firstFontDict(r).Key("Subtype").Name(); got != "Type0" {
+		t.Errorf("embedded face Subtype = %q, want Type0", got)
+	}
+}
+
+// fakeFace is a minimal painter.Face backed by explicit bytes/size/ascent.
+type fakeFace struct {
+	data   []byte
+	size   int
+	ascent int
+}
+
+func (f *fakeFace) FontData() []byte { return f.data }
+func (f *fakeFace) SizePx() int      { return f.size }
+func (f *fakeFace) Ascent() int      { return f.ascent }
 
 // TestAddWidgetVectorNoFont covers the missing-font error branch.
 func TestAddWidgetVectorNoFont(t *testing.T) {
