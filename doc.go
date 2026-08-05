@@ -53,7 +53,10 @@
 // XObject — any UI, exactly as it draws on screen. AddWidgetVector runs the same
 // tree through a painter that emits PDF vector operators instead of pixels, so
 // fills and strokes stay crisp and text drawn through the toolkit's built-in
-// font becomes real, selectable PDF text (it needs a WidgetOptions.Font).
+// font becomes real, selectable PDF text (it needs a WidgetOptions.Font). A
+// widget label set in a TrueType/OpenType toolkit font (a painter.Face) embeds
+// that face's own bytes and is emitted as selectable Type0 text too, so vector
+// output is not limited to the toolkit's built-in bitmap font.
 //
 // # Font embedding
 //

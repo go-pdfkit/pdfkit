@@ -35,6 +35,12 @@ Go-idiomatic rather than a gem port.
   rasterised as XObjects (FlateDecode) with an `/SMask` for alpha.
 - **Pages** — standard sizes (A3/A4/A5/Letter/Legal/Tabloid), portrait/landscape,
   custom sizes; `Pt`/`Mm`/`In` unit helpers.
+- **Widget bridge** — `Page.AddWidget` and `Page.AddWidgetVector` "print" a
+  [go-widgets/toolkit](https://github.com/go-widgets/toolkit) widget tree onto a
+  page. `AddWidget` rasterises the tree and places it as an image XObject —
+  pixel-identical to the screen. `AddWidgetVector` instead emits PDF vector
+  operators, so fills/strokes stay crisp and text stays selectable, including a
+  TrueType-font widget label's own face embedded as real Type0 text.
 - **Deterministic** — with the zero `Options`, output has no timestamps and a
   content-derived `/ID`, so identical inputs produce byte-identical PDFs.
 
@@ -81,6 +87,31 @@ Shaped (complex-script) text uses `p.TextShaped(x, y, s, features...)`, which
 runs the go-opentype shaper so Arabic, Indic and CJK position correctly. The
 default `Text` path stays a simple left-to-right cmap mapping.
 
+### Printing a widget tree
+
+```go
+import "github.com/go-widgets/toolkit"
+
+root := toolkit.NewContainer(toolkit.NewBoxLayout())
+btn := toolkit.NewButton("Submit", nil)
+btn.Style = toolkit.ButtonProminent
+root.AddWidget(btn)
+root.AddWidget(toolkit.NewLabel("Status: ready"))
+
+rect := pdfkit.Rect{X: pdfkit.Mm(20), Y: pdfkit.Mm(200), Width: pdfkit.Mm(80), Height: pdfkit.Mm(30)}
+
+// Raster: pixel-identical to the screen, not selectable.
+_ = p.AddWidget(root, rect, nil)
+
+// Vector: crisp fills/strokes, selectable text (needs an embedded Font).
+rect.Y -= pdfkit.Mm(40)
+_ = p.AddWidgetVector(root, rect, &pdfkit.WidgetOptions{Font: font})
+```
+
+`WidgetOptions.Scale` sets the layout-pixels-per-point ratio (default
+`DefaultWidgetScale`, 2); `WidgetOptions.Theme` selects the toolkit theme
+(default `toolkit.DefaultLight()`).
+
 ## Testing
 
 `GOWORK=off CGO_ENABLED=0 go test ./...` runs the suite at **exact 100%
@@ -103,7 +134,7 @@ TrueType font, a synthesised CFF2 font and a bundled OFL OpenType/CFF font.
 - A **CID-keyed CFF** or a **CFF2 (variable)** font cannot be charstring-subsetted
   by the preserve-numbering path, so it gracefully falls back to embedding the
   whole `CFF`/`CFF2` table.
-- Encryption, tagged/PDF-A, forms and annotations are out of scope for v0.2.
+- Encryption, tagged/PDF-A, forms and annotations are not yet implemented.
 
 ## License
 
