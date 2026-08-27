@@ -88,15 +88,36 @@ type fontUse struct {
 // newFontUse returns an empty usage record already including .notdef (glyph 0).
 func newFontUse() *fontUse {
 	return &fontUse{
-		gids:  map[opentype.GlyphIndex]bool{0: true},
-		toUni: map[opentype.GlyphIndex][]rune{},
+		gids: map[opentype.GlyphIndex]bool{0: true},
+		// .notdef says a character was asked for that the font does not have.
+		// It is given the replacement character rather than nothing, because
+		// the page already shows the loss — the face's own .notdef draws a box
+		// — and text read off that page should say the same thing the page
+		// says. Omitting the entry instead makes poppler read "a 漢字 b かな c
+		// 한글 d" as "abcd", which loses the spaces as well as the characters
+		// and leaves a reader no way to know anything was there.
+		toUni: map[opentype.GlyphIndex][]rune{0: {'\uFFFD'}},
 	}
 }
 
 // mark records that glyph gid is used and, when runes is non-empty and the
 // glyph has no mapping yet, associates it with that text for copy/paste.
+//
+// Glyph 0 is .notdef, which stands for a character the font does not have. Its
+// mapping is fixed at the replacement character by newFontUse and nothing here
+// may change it, whatever text asked for it.
+//
+// It used to be otherwise: the first character the font lacked took glyph 0's
+// /ToUnicode entry, and every later missing character then read back as that
+// first one. Poppler read a file written here as "a 漢漢 b 漢漢 c 漢漢 d" where
+// "a 漢字 b かな c 한글 d" had been written, and turned "السلام عليكم" into one
+// Arabic letter repeated eleven times. That is not text with holes in it; it is
+// text that is confidently wrong, which is the worse of the two failures.
 func (u *fontUse) mark(gid opentype.GlyphIndex, runes []rune) {
 	u.gids[gid] = true
+	if gid == 0 {
+		return
+	}
 	if len(runes) > 0 {
 		if _, ok := u.toUni[gid]; !ok {
 			cp := make([]rune, len(runes))
