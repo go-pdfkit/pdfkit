@@ -2,11 +2,11 @@ module github.com/go-pdfkit/pdfkit
 
 go 1.26.4
 
-require github.com/go-opentype/opentype v0.6.0
+require github.com/go-opentype/opentype v0.12.0
 
 require (
 	github.com/go-widgets/painter v0.12.0
-	github.com/go-widgets/toolkit v0.286.0
+	github.com/go-widgets/toolkit v0.289.0
 	rsc.io/pdf v0.1.1
 )
 

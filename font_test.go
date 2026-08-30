@@ -10,8 +10,9 @@ func TestLoadFontErrors(t *testing.T) {
 	if _, err := LoadFont([]byte("not a font")); err == nil {
 		t.Error("expected opentype parse error")
 	}
-	// A valid sfnt container missing cmap: opentype (which requires a cmap)
-	// rejects it, covering LoadFont's error branch.
+	// A valid sfnt container missing cmap. opentype used to reject this and the
+	// test leaned on that; since it became optional upstream, LoadFont makes the
+	// check itself, because pdfkit resolves every rune through the cmap.
 	if _, err := LoadFont(synthTTF(synthOpts{noCmap: true})); err == nil {
 		t.Error("expected opentype parse error for missing cmap")
 	}
