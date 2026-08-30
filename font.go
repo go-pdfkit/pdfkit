@@ -34,6 +34,15 @@ func LoadFont(data []byte) (*Font, error) {
 	// The face is sized to the em, so AdvanceIndexUnits returns advances in font
 	// units — exactly what a PDF /W width array wants — at the base (uninstanced)
 	// design.
+	// opentype accepts a font with no character map; pdfkit cannot. Every text
+	// call resolves runes through Font.GlyphIndex, so a font without a 'cmap'
+	// maps nothing and would silently draw a page of blanks. The requirement is
+	// pdfkit's own and is stated here, rather than borrowed from however strict
+	// the parser happens to be.
+	if _, ok := ot.Table("cmap"); !ok {
+		return nil, fmt.Errorf("pdfkit: parse font: no cmap table, the font maps no characters")
+	}
+
 	face := ot.NewFace(ot.UnitsPerEm())
 
 	name := ""
