@@ -40,12 +40,24 @@ type Page struct {
 	// links are the clickable link annotations on this page, in the order added;
 	// each becomes a /Link annotation in the page's /Annots array.
 	links []linkAnnot
+
+	// dests are the named destinations anchored on this page; each becomes an entry
+	// in the document's /Dests name tree, jumped to by an internal GoTo link.
+	dests []namedDest
 }
 
-// linkAnnot is a clickable rectangle carrying a URI action.
+// linkAnnot is a clickable rectangle. When dest is empty it opens uri (an external
+// URI action); otherwise it jumps to the named destination dest (a GoTo action).
 type linkAnnot struct {
 	rect Rect
 	uri  string
+	dest string
+}
+
+// namedDest is a named jump target anchored at (x, y) in the page's user space.
+type namedDest struct {
+	name string
+	x, y float64
 }
 
 // AddLink adds a borderless clickable link over rect — in the same PDF user-space
@@ -54,6 +66,20 @@ type linkAnnot struct {
 // <a href> the SVG output already emits.
 func (p *Page) AddLink(rect Rect, uri string) {
 	p.links = append(p.links, linkAnnot{rect: rect, uri: uri})
+}
+
+// AddNamedDest anchors the named destination name at (x, y) on this page, so an
+// internal link can jump to it. The point (x, y) is the top-left the viewer scrolls
+// to, in the page's user space.
+func (p *Page) AddNamedDest(name string, x, y float64) {
+	p.dests = append(p.dests, namedDest{name: name, x: x, y: y})
+}
+
+// AddNamedLink adds a borderless clickable link over rect that jumps to the named
+// destination dest in the same document — the in-PDF counterpart of the SVG output's
+// <a href="#name"> for \hyperlink.
+func (p *Page) AddNamedLink(rect Rect, dest string) {
+	p.links = append(p.links, linkAnnot{rect: rect, dest: dest})
 }
 
 // Width returns the page width in points.

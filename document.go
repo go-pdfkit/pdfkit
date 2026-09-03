@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -149,6 +150,7 @@ func (d *Document) Write(w io.Writer) error {
 		imageRefs[x] = d.buildImage(bd, x)
 	}
 
+	var dests []destEntry
 	for i, p := range d.pages {
 		content := p.finishContent()
 		cdict := newDict()
@@ -165,6 +167,9 @@ func (d *Document) Write(w io.Writer) error {
 			node.set("Annots", d.buildLinkAnnots(bd, p.links))
 		}
 		bd.put(pageRefs[i], node)
+		for _, dt := range p.dests {
+			dests = append(dests, destEntry{name: dt.name, page: pageRefs[i], y: dt.y})
+		}
 	}
 
 	kids := make(pdfArray, len(pageRefs))
@@ -180,6 +185,9 @@ func (d *Document) Write(w io.Writer) error {
 	catDict := newDict()
 	catDict.set("Type", pdfName("Catalog"))
 	catDict.set("Pages", pagesRef)
+	if names := d.buildDestNames(bd, dests); names != 0 {
+		catDict.set("Names", names)
+	}
 	bd.put(catalog, catDict)
 
 	var info objRef
@@ -198,8 +206,15 @@ func (d *Document) buildLinkAnnots(bd *builder, links []linkAnnot) pdfArray {
 	annots := make(pdfArray, len(links))
 	for i, ln := range links {
 		action := newDict()
-		action.set("S", pdfName("URI"))
-		action.set("URI", pdfString(ln.uri))
+		if ln.dest != "" {
+			// An internal jump: GoTo the named destination, resolved through the
+			// document's /Dests name tree.
+			action.set("S", pdfName("GoTo"))
+			action.set("D", pdfString(ln.dest))
+		} else {
+			action.set("S", pdfName("URI"))
+			action.set("URI", pdfString(ln.uri))
+		}
 
 		a := newDict()
 		a.set("Type", pdfName("Annot"))
@@ -213,6 +228,45 @@ func (d *Document) buildLinkAnnots(bd *builder, links []linkAnnot) pdfArray {
 		annots[i] = bd.add(a)
 	}
 	return annots
+}
+
+// destEntry is a named destination resolved to its page during Write.
+type destEntry struct {
+	name string
+	page objRef
+	y    float64
+}
+
+// buildDestNames builds the /Names dictionary carrying the /Dests name tree that an
+// internal GoTo link resolves against. Each name maps to [page /FitH y] — the viewer
+// scrolls so y is at the top and the page width fits. Names are unique (first
+// definition wins) and sorted, as a PDF name tree requires. Returns 0 (no object)
+// when there are no destinations.
+func (d *Document) buildDestNames(bd *builder, dests []destEntry) objRef {
+	if len(dests) == 0 {
+		return 0
+	}
+	byName := make(map[string]destEntry, len(dests))
+	order := make([]string, 0, len(dests))
+	for _, dt := range dests {
+		if _, ok := byName[dt.name]; !ok {
+			byName[dt.name] = dt
+			order = append(order, dt.name)
+		}
+	}
+	sort.Strings(order)
+
+	pairs := make(pdfArray, 0, 2*len(order))
+	for _, name := range order {
+		dt := byName[name]
+		pairs = append(pairs, pdfString(name), pdfArray{dt.page, pdfName("FitH"), pdfReal(dt.y)})
+	}
+	destTree := newDict()
+	destTree.set("Names", pairs)
+
+	names := newDict()
+	names.set("Dests", bd.add(destTree))
+	return bd.add(names)
 }
 
 // producer returns the effective /Producer string.
