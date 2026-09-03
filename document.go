@@ -48,12 +48,33 @@ const DefaultProducer = "go-pdfkit/pdfkit"
 // pages with AddPage, then serialise with Write. It is not safe for concurrent
 // use.
 type Document struct {
-	opts   Options
-	pages  []*Page
-	fonts  []*Font            // registration order; index drives the /F<i> name
-	fontIx map[*Font]int      // font -> registration index
-	use    map[*Font]*fontUse // per-document glyph usage, keyed by font
-	images []*imageXObject    // registration order; index drives the /Im<i> name
+	opts    Options
+	pages   []*Page
+	fonts   []*Font            // registration order; index drives the /F<i> name
+	fontIx  map[*Font]int      // font -> registration index
+	use     map[*Font]*fontUse // per-document glyph usage, keyed by font
+	images  []*imageXObject    // registration order; index drives the /Im<i> name
+	outline []outlineItem      // document outline (bookmarks), in document order
+}
+
+// outlineItem is one entry in the document outline (the viewer's bookmark tree):
+// its title, its nesting level (1 = top level, higher = deeper), and the page it
+// jumps to.
+type outlineItem struct {
+	title     string
+	level     int
+	pageIndex int
+}
+
+// AddOutlineItem appends a bookmark to the document outline: title at nesting level
+// (1 = top level; a higher level nests under the most recent shallower item),
+// jumping to page pageIndex (0-based). Out-of-range pages are ignored. Items build
+// the /Outlines tree a PDF viewer shows as its navigation sidebar.
+func (d *Document) AddOutlineItem(title string, level, pageIndex int) {
+	if level < 1 || pageIndex < 0 || pageIndex >= len(d.pages) {
+		return
+	}
+	d.outline = append(d.outline, outlineItem{title: title, level: level, pageIndex: pageIndex})
 }
 
 // New returns a new, empty Document configured by opts.
@@ -188,6 +209,9 @@ func (d *Document) Write(w io.Writer) error {
 	if names := d.buildDestNames(bd, dests); names != 0 {
 		catDict.set("Names", names)
 	}
+	if outlines := d.buildOutlines(bd, pageRefs); outlines != 0 {
+		catDict.set("Outlines", outlines)
+	}
 	bd.put(catalog, catDict)
 
 	var info objRef
@@ -267,6 +291,95 @@ func (d *Document) buildDestNames(bd *builder, dests []destEntry) objRef {
 	names := newDict()
 	names.set("Dests", bd.add(destTree))
 	return bd.add(names)
+}
+
+// outlineNode is the resolved tree form of the flat outline items during Write.
+type outlineNode struct {
+	item     outlineItem
+	ref      objRef
+	children []*outlineNode
+}
+
+// buildOutlines builds the /Outlines tree a viewer shows as its bookmark sidebar and
+// returns its root object (0 when there are no items). Items nest by level — an item
+// deeper than the one before becomes its child — and each is a /Title with a /Dest to
+// [page /Fit] plus the /Parent //Prev //Next //First //Last //Count links a PDF
+// outline tree requires.
+func (d *Document) buildOutlines(bd *builder, pageRefs []objRef) objRef {
+	if len(d.outline) == 0 {
+		return 0
+	}
+	var roots []*outlineNode
+	var stack []*outlineNode
+	for _, it := range d.outline {
+		n := &outlineNode{item: it}
+		for len(stack) > 0 && stack[len(stack)-1].item.level >= it.level {
+			stack = stack[:len(stack)-1]
+		}
+		if len(stack) == 0 {
+			roots = append(roots, n)
+		} else {
+			p := stack[len(stack)-1]
+			p.children = append(p.children, n)
+		}
+		stack = append(stack, n)
+	}
+
+	root := bd.reserve()
+	reserveOutline(bd, roots)
+
+	rd := newDict()
+	rd.set("Type", pdfName("Outlines"))
+	rd.set("First", roots[0].ref)
+	rd.set("Last", roots[len(roots)-1].ref)
+	rd.set("Count", pdfInt(outlineCount(roots)))
+	bd.put(root, rd)
+
+	d.fillOutline(bd, pageRefs, roots, root)
+	return root
+}
+
+// reserveOutline assigns an object number to every node, depth first, so sibling and
+// parent references exist before the bodies are written.
+func reserveOutline(bd *builder, ns []*outlineNode) {
+	for _, n := range ns {
+		n.ref = bd.reserve()
+		reserveOutline(bd, n.children)
+	}
+}
+
+// outlineCount is the number of descendants across all levels of ns — the /Count of
+// an open outline node.
+func outlineCount(ns []*outlineNode) int {
+	c := 0
+	for _, n := range ns {
+		c += 1 + outlineCount(n.children)
+	}
+	return c
+}
+
+// fillOutline writes each node's item dictionary, linking its parent, siblings and
+// children.
+func (d *Document) fillOutline(bd *builder, pageRefs []objRef, ns []*outlineNode, parent objRef) {
+	for i, n := range ns {
+		od := newDict()
+		od.set("Title", pdfString(n.item.title))
+		od.set("Parent", parent)
+		od.set("Dest", pdfArray{pageRefs[n.item.pageIndex], pdfName("Fit")})
+		if i > 0 {
+			od.set("Prev", ns[i-1].ref)
+		}
+		if i < len(ns)-1 {
+			od.set("Next", ns[i+1].ref)
+		}
+		if len(n.children) > 0 {
+			od.set("First", n.children[0].ref)
+			od.set("Last", n.children[len(n.children)-1].ref)
+			od.set("Count", pdfInt(outlineCount(n.children)))
+		}
+		bd.put(n.ref, od)
+		d.fillOutline(bd, pageRefs, n.children, n.ref)
+	}
 }
 
 // producer returns the effective /Producer string.
