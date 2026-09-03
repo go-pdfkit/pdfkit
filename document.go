@@ -17,10 +17,15 @@ import (
 // Options configures a Document. The zero value is valid and yields a
 // deterministic, uncompressed document with no timestamps.
 type Options struct {
-	// Title and Author populate the document information dictionary. Empty
-	// values are omitted.
-	Title  string
-	Author string
+	// Title, Author, Subject and Keywords populate the document information
+	// dictionary. Empty values are omitted. Subject is a one-line description of
+	// the document; Keywords is a list of search terms (conventionally
+	// comma-separated). Each is written as a PDF text string, so a non-ASCII value
+	// is encoded UTF-16BE.
+	Title    string
+	Author   string
+	Subject  string
+	Keywords string
 
 	// Producer is the /Producer string in the information dictionary. When
 	// empty it defaults to DefaultProducer.
@@ -215,7 +220,8 @@ func (d *Document) Write(w io.Writer) error {
 	bd.put(catalog, catDict)
 
 	var info objRef
-	hasInfo := d.opts.Title != "" || d.opts.Author != "" || d.producer() != "" || d.opts.Now != nil
+	hasInfo := d.opts.Title != "" || d.opts.Author != "" || d.opts.Subject != "" ||
+		d.opts.Keywords != "" || d.producer() != "" || d.opts.Now != nil
 	if hasInfo {
 		info = bd.add(d.infoDict())
 	}
@@ -398,6 +404,12 @@ func (d *Document) infoDict() *pdfDict {
 	}
 	if d.opts.Author != "" {
 		info.set("Author", pdfTextString(d.opts.Author))
+	}
+	if d.opts.Subject != "" {
+		info.set("Subject", pdfTextString(d.opts.Subject))
+	}
+	if d.opts.Keywords != "" {
+		info.set("Keywords", pdfTextString(d.opts.Keywords))
 	}
 	if p := d.producer(); p != "" {
 		info.set("Producer", pdfString(p))
