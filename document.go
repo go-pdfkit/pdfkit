@@ -161,6 +161,9 @@ func (d *Document) Write(w io.Writer) error {
 		node.set("MediaBox", pdfArray{pdfReal(0), pdfReal(0), pdfReal(p.width), pdfReal(p.height)})
 		node.set("Contents", cstream)
 		node.set("Resources", p.resources(fontRefs, imageRefs))
+		if len(p.links) > 0 {
+			node.set("Annots", d.buildLinkAnnots(bd, p.links))
+		}
 		bd.put(pageRefs[i], node)
 	}
 
@@ -186,6 +189,30 @@ func (d *Document) Write(w io.Writer) error {
 	}
 
 	return d.emit(w, bd, catalog, info, hasInfo)
+}
+
+// buildLinkAnnots emits one /Link annotation object per link and returns the
+// /Annots array referencing them. A link is a borderless rectangle whose /A is a
+// URI action; /Rect is [llx lly urx ury] in the page's default user space.
+func (d *Document) buildLinkAnnots(bd *builder, links []linkAnnot) pdfArray {
+	annots := make(pdfArray, len(links))
+	for i, ln := range links {
+		action := newDict()
+		action.set("S", pdfName("URI"))
+		action.set("URI", pdfString(ln.uri))
+
+		a := newDict()
+		a.set("Type", pdfName("Annot"))
+		a.set("Subtype", pdfName("Link"))
+		a.set("Rect", pdfArray{
+			pdfReal(ln.rect.X), pdfReal(ln.rect.Y),
+			pdfReal(ln.rect.X + ln.rect.Width), pdfReal(ln.rect.Y + ln.rect.Height),
+		})
+		a.set("Border", pdfArray{pdfInt(0), pdfInt(0), pdfInt(0)})
+		a.set("A", action)
+		annots[i] = bd.add(a)
+	}
+	return annots
 }
 
 // producer returns the effective /Producer string.
