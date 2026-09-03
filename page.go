@@ -36,6 +36,24 @@ type Page struct {
 	// extGStates records the transparency graphics states this page uses, in
 	// registration order; each becomes a /GS<i> resource.
 	extGStates []extGState
+
+	// links are the clickable link annotations on this page, in the order added;
+	// each becomes a /Link annotation in the page's /Annots array.
+	links []linkAnnot
+}
+
+// linkAnnot is a clickable rectangle carrying a URI action.
+type linkAnnot struct {
+	rect Rect
+	uri  string
+}
+
+// AddLink adds a borderless clickable link over rect — in the same PDF user-space
+// coordinates the drawing methods use — that opens uri when activated. It is how a
+// typeset hyperref link (\href/\url) becomes navigable in the PDF, matching the
+// <a href> the SVG output already emits.
+func (p *Page) AddLink(rect Rect, uri string) {
+	p.links = append(p.links, linkAnnot{rect: rect, uri: uri})
 }
 
 // Width returns the page width in points.
