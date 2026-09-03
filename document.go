@@ -363,7 +363,7 @@ func outlineCount(ns []*outlineNode) int {
 func (d *Document) fillOutline(bd *builder, pageRefs []objRef, ns []*outlineNode, parent objRef) {
 	for i, n := range ns {
 		od := newDict()
-		od.set("Title", pdfString(n.item.title))
+		od.set("Title", pdfTextString(n.item.title))
 		od.set("Parent", parent)
 		od.set("Dest", pdfArray{pageRefs[n.item.pageIndex], pdfName("Fit")})
 		if i > 0 {
@@ -394,10 +394,10 @@ func (d *Document) producer() string {
 func (d *Document) infoDict() *pdfDict {
 	info := newDict()
 	if d.opts.Title != "" {
-		info.set("Title", pdfString(d.opts.Title))
+		info.set("Title", pdfTextString(d.opts.Title))
 	}
 	if d.opts.Author != "" {
-		info.set("Author", pdfString(d.opts.Author))
+		info.set("Author", pdfTextString(d.opts.Author))
 	}
 	if p := d.producer(); p != "" {
 		info.set("Producer", pdfString(p))

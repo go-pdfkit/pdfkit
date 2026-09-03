@@ -82,6 +82,42 @@ func (s pdfString) encodePDF(b *bytes.Buffer) {
 	b.WriteByte(')')
 }
 
+// pdfTextString is a PDF "text string" — metadata and UI text such as a document
+// title, an author, or a bookmark label. Pure-ASCII text is written as a literal
+// (…) string; text with any non-ASCII rune is written UTF-16BE with a leading BOM as
+// a hex <FEFF…> string, so accented and other non-Latin titles display correctly
+// instead of as mojibake.
+type pdfTextString string
+
+func (s pdfTextString) encodePDF(b *bytes.Buffer) {
+	for _, r := range s {
+		if r > 0x7f {
+			b.WriteString("<FEFF")
+			for _, r := range s {
+				if r > 0xFFFF {
+					r -= 0x10000
+					textHex16(b, 0xD800+int(r>>10))
+					textHex16(b, 0xDC00+int(r&0x3FF))
+				} else {
+					textHex16(b, int(r))
+				}
+			}
+			b.WriteByte('>')
+			return
+		}
+	}
+	pdfString(s).encodePDF(b) // all-ASCII: a literal (…) string with the usual escaping
+}
+
+// textHex16 writes v as four uppercase hex digits (one UTF-16 code unit).
+func textHex16(b *bytes.Buffer, v int) {
+	const hexd = "0123456789ABCDEF"
+	b.WriteByte(hexd[(v>>12)&0xF])
+	b.WriteByte(hexd[(v>>8)&0xF])
+	b.WriteByte(hexd[(v>>4)&0xF])
+	b.WriteByte(hexd[v&0xF])
+}
+
 // pdfHexString is a PDF hexadecimal string, written between angle brackets. It
 // is used for the trailer /ID and other binary payloads.
 type pdfHexString []byte
