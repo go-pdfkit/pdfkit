@@ -6,6 +6,7 @@ package pdfkit
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"image"
 	"image/png"
@@ -25,9 +26,29 @@ type imageXObject struct {
 	smask      *imageXObject
 }
 
+// imageKey content-addresses an image by the bytes a PDF consumer would see
+// once the filter is undone: the *uncompressed* samples plus the geometry and
+// colour parameters that give them meaning, and the alpha samples that would
+// become a soft mask. The lengths go into the digest ahead of the payloads so
+// no shift of bytes between the two slices can forge a match.
+//
+// Hashing the raw samples (rather than the filtered stream) is what lets a
+// duplicate be recognised *before* it pays for compression.
+func imageKey(filter, colorSpace string, w, h, bpc int, samples, alpha []byte) string {
+	sum := sha256.New()
+	fmt.Fprintf(sum, "%s|%s|%d|%d|%d|%d|%d|", filter, colorSpace, w, h, bpc, len(samples), len(alpha))
+	sum.Write(samples)
+	sum.Write(alpha)
+	return string(sum.Sum(nil))
+}
+
 // DrawImage embeds img and paints it into the rectangle r (in points). Any
 // alpha channel becomes a soft mask, so partially transparent images composite
 // correctly. Sample data is FlateDecode-compressed.
+//
+// Pixel-identical images share one XObject document-wide: the samples are
+// hashed before they are compressed, so redrawing the same bitmap costs a hash
+// and nothing else.
 func (p *Page) DrawImage(img image.Image, r Rect) {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
@@ -44,24 +65,31 @@ func (p *Page) DrawImage(img image.Image, r Rect) {
 			}
 		}
 	}
-	x := &imageXObject{
-		width:      w,
-		height:     h,
-		colorSpace: "DeviceRGB",
-		bpc:        8,
-		filter:     "FlateDecode",
-		data:       flateCompress(rgb),
+	if !hasAlpha {
+		alpha = nil // a fully opaque image gets no soft mask, and keys as such
 	}
-	if hasAlpha {
-		x.smask = &imageXObject{
+	key := imageKey("FlateDecode", "DeviceRGB", w, h, 8, rgb, alpha)
+	x := p.doc.imageFor(key, func() *imageXObject {
+		x := &imageXObject{
 			width:      w,
 			height:     h,
-			colorSpace: "DeviceGray",
+			colorSpace: "DeviceRGB",
 			bpc:        8,
 			filter:     "FlateDecode",
-			data:       flateCompress(alpha),
+			data:       flateCompress(rgb),
 		}
-	}
+		if alpha != nil {
+			x.smask = &imageXObject{
+				width:      w,
+				height:     h,
+				colorSpace: "DeviceGray",
+				bpc:        8,
+				filter:     "FlateDecode",
+				data:       flateCompress(alpha),
+			}
+		}
+		return x
+	})
 	p.placeImage(x, r)
 }
 
@@ -95,21 +123,24 @@ func (p *Page) DrawJPEG(data []byte, r Rect) error {
 	default:
 		return fmt.Errorf("pdfkit: unsupported JPEG component count %d", comps)
 	}
-	x := &imageXObject{
-		width:      w,
-		height:     h,
-		colorSpace: cs,
-		bpc:        8,
-		filter:     "DCTDecode",
-		data:       data,
-	}
+	key := imageKey("DCTDecode", cs, w, h, 8, data, nil)
+	x := p.doc.imageFor(key, func() *imageXObject {
+		return &imageXObject{
+			width:      w,
+			height:     h,
+			colorSpace: cs,
+			bpc:        8,
+			filter:     "DCTDecode",
+			data:       data,
+		}
+	})
 	p.placeImage(x, r)
 	return nil
 }
 
-// placeImage registers the XObject and emits the operators to paint it into r.
+// placeImage emits the operators that paint an already-registered XObject
+// into r, and records it as a resource this page uses.
 func (p *Page) placeImage(x *imageXObject, r Rect) {
-	x.name = p.doc.registerImage(x)
 	p.usedImages[x] = true
 	p.Save()
 	p.Transform(r.Width, 0, 0, r.Height, r.X, r.Y)

@@ -39,11 +39,29 @@
 // charstring-subsetted FontFile3 / CIDFontType0 whose glyph numbering is
 // preserved, so an Identity /CIDToGIDMap suffices.
 //
+// # Images
+//
+// DrawJPEG stores the original JPEG bytes as a DCTDecode stream, so nothing is
+// re-encoded. DrawPNG and DrawImage walk any image.Image into 8-bit DeviceRGB
+// samples compressed with FlateDecode, and an image that is not fully opaque
+// gets its alpha channel as a DeviceGray /SMask.
+//
+// An image is content-addressed by its uncompressed samples together with the
+// width, height, colour space, bits per component and the alpha samples — the
+// raw JPEG bytes in the DCTDecode case. Pixel-identical bitmaps therefore share
+// a single XObject across the whole document, whichever page paints them and
+// whichever entry point embedded them; the samples are hashed before they are
+// compressed, so a repeat never pays for compression twice. This matters for
+// pages that reuse one icon many times: an HTML renderer feeding pdfkit 166
+// rasterised copies of a handful of icon SVGs now emits a handful of streams.
+//
 // # Determinism
 //
 // With the zero Options the output contains no timestamps and a content-derived
 // /ID, so identical inputs produce byte-identical documents. Set Options.Now to
-// stamp creation and modification dates.
+// stamp creation and modification dates. The image cache is consulted but never
+// iterated: object order and /Im<i> numbering follow first-sighting order, so
+// deduplication does not put map iteration on the output path.
 //
 // # Widget bridge
 //

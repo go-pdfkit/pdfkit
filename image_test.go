@@ -7,6 +7,7 @@ package pdfkit
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"strings"
 	"testing"
@@ -85,6 +86,189 @@ func TestJPEGInfoErrors(t *testing.T) {
 		if err := p.DrawJPEG(data, Rect{}); err == nil {
 			t.Errorf("%s: expected error", name)
 		}
+	}
+}
+
+// writeDoc serialises doc and fails the test if that errors.
+func writeDoc(t *testing.T, doc *Document) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := doc.Write(&buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// countImageObjects counts the image XObject streams actually emitted.
+func countImageObjects(t *testing.T, doc *Document) int {
+	t.Helper()
+	return bytes.Count(writeDoc(t, doc), []byte("/Subtype /Image"))
+}
+
+func TestDrawImageDedupIdentical(t *testing.T) {
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	img := makeOpaqueImage()
+	p.DrawImage(img, Rect{Width: 10, Height: 10})
+	p.DrawImage(makeOpaqueImage(), Rect{X: 20, Width: 10, Height: 10}) // same pixels, other value
+
+	if len(doc.images) != 1 {
+		t.Fatalf("registered %d XObjects, want 1", len(doc.images))
+	}
+	if n := countImageObjects(t, doc); n != 1 {
+		t.Errorf("emitted %d image objects, want 1", n)
+	}
+	// Both placements must still paint, and both through the shared name.
+	if got := strings.Count(content(p), "/Im0 Do"); got != 2 {
+		t.Errorf("/Im0 Do appears %d times, want 2", got)
+	}
+	if strings.Contains(content(p), "/Im1") {
+		t.Error("a second resource name leaked into the content stream")
+	}
+}
+
+func TestDrawImageDistinctNotDeduped(t *testing.T) {
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	p.DrawImage(makeOpaqueImage(), Rect{Width: 10, Height: 10})
+	p.DrawImage(makeTestImage(), Rect{X: 20, Width: 10, Height: 10}) // different pixels *and* alpha
+
+	if len(doc.images) != 2 {
+		t.Fatalf("registered %d XObjects, want 2", len(doc.images))
+	}
+	// Two placements, two names; the second carries a soft mask, so three
+	// image streams reach the file.
+	if n := countImageObjects(t, doc); n != 3 {
+		t.Errorf("emitted %d image objects, want 3 (two images + one soft mask)", n)
+	}
+	c := content(p)
+	if !strings.Contains(c, "/Im0 Do") || !strings.Contains(c, "/Im1 Do") {
+		t.Errorf("both placements should paint distinct XObjects: %q", c)
+	}
+}
+
+func TestDrawImageAlphaIsPartOfTheKey(t *testing.T) {
+	// Same RGB samples, different alpha: the two must not collapse into one.
+	opaque := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	translucent := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			opaque.Set(x, y, color.NRGBA{R: 200, G: 100, B: 50, A: 255})
+			translucent.Set(x, y, color.NRGBA{R: 200, G: 100, B: 50, A: 128})
+		}
+	}
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	p.DrawImage(opaque, Rect{Width: 4, Height: 4})
+	p.DrawImage(translucent, Rect{X: 10, Width: 4, Height: 4})
+
+	if len(doc.images) != 2 {
+		t.Fatalf("alpha ignored by the key: registered %d XObjects, want 2", len(doc.images))
+	}
+	if doc.images[0].smask != nil {
+		t.Error("opaque image should have no soft mask")
+	}
+	if doc.images[1].smask == nil {
+		t.Error("translucent image should have a soft mask")
+	}
+}
+
+func TestDrawPNGDedup(t *testing.T) {
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	encoded := pngBytes(makeTestImage())
+	for i := 0; i < 3; i++ {
+		if err := p.DrawPNG(encoded, Rect{X: float64(i * 10), Width: 5, Height: 5}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(doc.images) != 1 {
+		t.Fatalf("registered %d XObjects, want 1", len(doc.images))
+	}
+	// One image plus its soft mask.
+	if n := countImageObjects(t, doc); n != 2 {
+		t.Errorf("emitted %d image objects, want 2 (image + soft mask)", n)
+	}
+	if got := strings.Count(content(p), "/Im0 Do"); got != 3 {
+		t.Errorf("/Im0 Do appears %d times, want 3", got)
+	}
+}
+
+func TestDrawJPEGDedup(t *testing.T) {
+	doc := New(Options{})
+	p := doc.AddPage(A4)
+	data := jpegBytes()
+	if err := p.DrawJPEG(data, Rect{Width: 8, Height: 8}); err != nil {
+		t.Fatal(err)
+	}
+	// A byte-identical copy, not the same slice, so identity cannot be doing
+	// the work.
+	if err := p.DrawJPEG(append([]byte(nil), data...), Rect{X: 20, Width: 8, Height: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.DrawJPEG(craftJPEG(4), Rect{Width: 1, Height: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.images) != 2 {
+		t.Fatalf("registered %d XObjects, want 2", len(doc.images))
+	}
+	if n := countImageObjects(t, doc); n != 2 {
+		t.Errorf("emitted %d image objects, want 2", n)
+	}
+}
+
+func TestImageDedupAcrossPages(t *testing.T) {
+	doc := New(Options{})
+	p1 := doc.AddPage(A4)
+	p2 := doc.AddPage(A4)
+	p1.DrawImage(makeOpaqueImage(), Rect{Width: 10, Height: 10})
+	p2.DrawImage(makeOpaqueImage(), Rect{Width: 10, Height: 10})
+
+	if len(doc.images) != 1 {
+		t.Fatalf("registered %d XObjects, want 1 shared across pages", len(doc.images))
+	}
+	if n := countImageObjects(t, doc); n != 1 {
+		t.Errorf("emitted %d image objects, want 1", n)
+	}
+	// Each page must still list it in its own /Resources /XObject dictionary.
+	for i, p := range []*Page{p1, p2} {
+		if !p.usedImages[doc.images[0]] {
+			t.Errorf("page %d does not claim the shared XObject as a resource", i)
+		}
+		if !strings.Contains(content(p), "/Im0 Do") {
+			t.Errorf("page %d does not paint the shared XObject", i)
+		}
+	}
+	if n := bytes.Count(writeDoc(t, doc), []byte("/XObject <<")); n != 2 {
+		t.Errorf("%d /XObject resource dictionaries, want one per page", n)
+	}
+}
+
+func TestImageDedupStaysDeterministic(t *testing.T) {
+	build := func() *Document {
+		doc := New(Options{})
+		p := doc.AddPage(A4)
+		// Interleave repeats and fresh content so a map-ordered registration
+		// would show up as a difference between the two writes.
+		p.DrawImage(makeOpaqueImage(), Rect{Width: 4, Height: 4})
+		p.DrawImage(makeTestImage(), Rect{X: 10, Width: 4, Height: 4})
+		p.DrawImage(makeOpaqueImage(), Rect{X: 20, Width: 4, Height: 4})
+		if err := p.DrawJPEG(jpegBytes(), Rect{X: 30, Width: 4, Height: 4}); err != nil {
+			t.Fatal(err)
+		}
+		p.DrawImage(makeTestImage(), Rect{X: 40, Width: 4, Height: 4})
+		return doc
+	}
+	doc := build()
+	first, second := writeDoc(t, doc), writeDoc(t, doc)
+	if !bytes.Equal(first, second) {
+		t.Error("two writes of one document differ")
+	}
+	if other := writeDoc(t, build()); !bytes.Equal(first, other) {
+		t.Error("two identically built documents differ")
+	}
+	if len(doc.images) != 3 {
+		t.Errorf("registered %d XObjects, want 3", len(doc.images))
 	}
 }
 
