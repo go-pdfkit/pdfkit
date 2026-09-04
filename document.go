@@ -60,6 +60,12 @@ type Document struct {
 	use     map[*Font]*fontUse // per-document glyph usage, keyed by font
 	images  []*imageXObject    // registration order; index drives the /Im<i> name
 	outline []outlineItem      // document outline (bookmarks), in document order
+
+	// imgCache maps an image's content address (see imageKey) to the XObject
+	// already registered for it, so a bitmap drawn many times is embedded
+	// once. It is consulted, never iterated: the emitted order and the /Im<i>
+	// numbering come from the images slice, so output stays deterministic.
+	imgCache map[string]*imageXObject
 }
 
 // outlineItem is one entry in the document outline (the viewer's bookmark tree):
@@ -85,9 +91,10 @@ func (d *Document) AddOutlineItem(title string, level, pageIndex int) {
 // New returns a new, empty Document configured by opts.
 func New(opts Options) *Document {
 	return &Document{
-		opts:   opts,
-		fontIx: map[*Font]int{},
-		use:    map[*Font]*fontUse{},
+		opts:     opts,
+		fontIx:   map[*Font]int{},
+		use:      map[*Font]*fontUse{},
+		imgCache: map[string]*imageXObject{},
 	}
 }
 
@@ -122,6 +129,21 @@ func (d *Document) registerImage(x *imageXObject) string {
 	name := "Im" + strconv.Itoa(len(d.images))
 	d.images = append(d.images, x)
 	return name
+}
+
+// imageFor returns the XObject registered for the content address key, calling
+// build only the first time that content is seen. Every later draw of a
+// pixel-identical bitmap — on this page or any other, since the cache belongs
+// to the document — reuses the same object and the same /Im<i> name, so it
+// costs one stream in the file instead of one per placement.
+func (d *Document) imageFor(key string, build func() *imageXObject) *imageXObject {
+	if x, ok := d.imgCache[key]; ok {
+		return x
+	}
+	x := build()
+	x.name = d.registerImage(x)
+	d.imgCache[key] = x
+	return x
 }
 
 // builder assembles the flat list of indirect objects and assigns their

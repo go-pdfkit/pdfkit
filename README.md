@@ -32,6 +32,9 @@ Go-idiomatic rather than a gem port.
   optional **shaped-text** API (GSUB/GPOS via go-opentype) for Arabic/Indic/CJK.
 - **Images** — JPEG embedded directly (DCTDecode); PNG and any `image.Image`
   rasterised as XObjects (FlateDecode) with an `/SMask` for alpha.
+  **Pixel-identical bitmaps are shared**: each image is content-addressed by its
+  *uncompressed* samples, so a repeat is embedded — and compressed — once per
+  document and every placement, on any page, references the one XObject.
 - **Pages** — standard sizes (A3/A4/A5/Letter/Legal/Tabloid), portrait/landscape,
   custom sizes; `Pt`/`Mm`/`In` unit helpers.
 - **Widget bridge** — `Page.AddWidget` and `Page.AddWidgetVector` "print" a
