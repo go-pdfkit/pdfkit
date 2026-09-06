@@ -40,6 +40,17 @@ type Options struct {
 	// streams. Image streams choose their own filter regardless.
 	Compress bool
 
+	// ObjectStreams packs the document's non-stream objects — page and font
+	// dictionaries, link annotations, outline items, name trees — into PDF 1.5
+	// object streams and replaces the classic cross-reference table with a
+	// cross-reference stream. With Compress also set the object streams are
+	// flate-compressed as a whole, which is where the saving is: a link
+	// annotation costs some 220 bytes as a bare indirect object plus its xref
+	// line, and a few tens of bytes packed with its neighbours. Off by default,
+	// so the bytes existing consumers get do not change: the file then declares
+	// PDF 1.7 and carries every object bare with a classic table.
+	ObjectStreams bool
+
 	// ID, when both entries are non-nil, is used verbatim as the trailer /ID
 	// pair. When nil the ID is derived deterministically from the document
 	// body, so identical documents get identical IDs without a clock.
@@ -168,9 +179,12 @@ func (bd *builder) add(v pdfValue) objRef {
 	return r
 }
 
-// Write serialises the document to w as a complete PDF 1.7 file. It returns the
-// first write error encountered. Calling Write does not consume the document;
-// it may be written more than once.
+// Write serialises the document to w as a complete PDF file: PDF 1.7 with a
+// classic cross-reference table, or, when Options.ObjectStreams is set, PDF 1.5
+// with its small objects packed into object streams and a cross-reference
+// stream in place of the table. It returns the first write error encountered.
+// Calling Write does not consume the document; it may be written more than
+// once.
 func (d *Document) Write(w io.Writer) error {
 	if len(d.pages) == 0 {
 		return fmt.Errorf("pdfkit: document has no pages")
@@ -248,6 +262,9 @@ func (d *Document) Write(w io.Writer) error {
 		info = bd.add(d.infoDict())
 	}
 
+	if d.opts.ObjectStreams {
+		return d.emitObjectStreams(w, bd, catalog, info, hasInfo)
+	}
 	return d.emit(w, bd, catalog, info, hasInfo)
 }
 
@@ -453,11 +470,7 @@ func (d *Document) emit(w io.Writer, bd *builder, catalog, info objRef, hasInfo 
 
 	offsets := make([]int, len(bd.objs))
 	for i, o := range bd.objs {
-		offsets[i] = buf.Len()
-		buf.WriteString(strconv.Itoa(i + 1))
-		buf.WriteString(" 0 obj\n")
-		o.encodePDF(&buf)
-		buf.WriteString("\nendobj\n")
+		offsets[i] = writeIndirect(&buf, i+1, o)
 	}
 
 	xrefOff := buf.Len()
@@ -486,6 +499,18 @@ func (d *Document) emit(w io.Writer, bd *builder, catalog, info objRef, hasInfo 
 
 	_, err := w.Write(buf.Bytes())
 	return err
+}
+
+// writeIndirect appends object number n, generation 0, with body v to buf as
+// "n 0 obj ... endobj" and returns the offset it starts at, which is what the
+// cross-reference table or stream records for it.
+func writeIndirect(buf *bytes.Buffer, n int, v pdfValue) int {
+	off := buf.Len()
+	buf.WriteString(strconv.Itoa(n))
+	buf.WriteString(" 0 obj\n")
+	v.encodePDF(buf)
+	buf.WriteString("\nendobj\n")
+	return off
 }
 
 // documentID returns the trailer /ID pair. A caller-supplied ID is used as-is;
