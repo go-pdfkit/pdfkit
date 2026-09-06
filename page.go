@@ -33,6 +33,16 @@ type Page struct {
 	leading    float64
 	renderMode int
 
+	// lastTextState, lastFill and lastStroke are the operators last written for
+	// the text state, the fill colour and the stroke colour, so that setting
+	// the same value again writes nothing: all three are graphics-state
+	// parameters that persist across text objects, and a page of prose is
+	// thousands of words in one font and colour. Restore (Q) clears them,
+	// since it pops the state they were set in.
+	lastTextState string
+	lastFill      string
+	lastStroke    string
+
 	// extGStates records the transparency graphics states this page uses, in
 	// registration order; each becomes a /GS<i> resource.
 	extGStates []extGState
@@ -117,8 +127,13 @@ func nums(vs ...float64) string {
 // Save pushes the current graphics state (q).
 func (p *Page) Save() { p.op("", "q") }
 
-// Restore pops the graphics state (Q).
-func (p *Page) Restore() { p.op("", "Q") }
+// Restore pops the graphics state (Q). The font/colour operators written since
+// the matching Save are forgotten with it, so the next SetFont/SetFillColor/
+// SetStrokeColor writes even a value that looks unchanged.
+func (p *Page) Restore() {
+	p.op("", "Q")
+	p.lastTextState, p.lastFill, p.lastStroke = "", "", ""
+}
 
 // Transform concatenates the affine matrix [a b c d e f] onto the current
 // transformation matrix (cm). Points map as x' = a*x + c*y + e and
@@ -238,11 +253,23 @@ func (p *Page) SetDash(pattern []float64, phase float64) {
 	p.op(b.String(), "d")
 }
 
-// SetFillColor selects the fill colour.
-func (p *Page) SetFillColor(c Color) { p.op("", c.ops(false)) }
+// SetFillColor selects the fill colour. Selecting the colour already in force
+// writes nothing.
+func (p *Page) SetFillColor(c Color) {
+	if s := c.ops(false); s != p.lastFill {
+		p.op("", s)
+		p.lastFill = s
+	}
+}
 
-// SetStrokeColor selects the stroke colour.
-func (p *Page) SetStrokeColor(c Color) { p.op("", c.ops(true)) }
+// SetStrokeColor selects the stroke colour. Selecting the colour already in
+// force writes nothing.
+func (p *Page) SetStrokeColor(c Color) {
+	if s := c.ops(true); s != p.lastStroke {
+		p.op("", s)
+		p.lastStroke = s
+	}
+}
 
 // extGState is one transparency graphics-state parameter dictionary this page
 // references: a constant fill alpha (ca) and stroke alpha (CA).

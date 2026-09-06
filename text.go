@@ -6,8 +6,11 @@ package pdfkit
 
 import (
 	"errors"
+	"math"
 	"strconv"
 	"strings"
+
+	"github.com/go-opentype/opentype"
 )
 
 // errNoFont is returned by the text methods when no font has been selected.
@@ -15,14 +18,14 @@ var errNoFont = errors.New("pdfkit: no font set (call SetFont first)")
 
 // Text render modes for SetRenderMode (a subset of PDF's Tr values).
 const (
-	RenderFill        = 0 // fill glyphs
-	RenderStroke      = 1 // stroke glyph outlines
-	RenderFillStroke  = 2 // fill then stroke
-	RenderInvisible   = 3 // neither (useful for OCR text layers)
-	RenderFillClip    = 4 // fill and add to clip
-	RenderStrokeClip  = 5 // stroke and add to clip
-	RenderFSClip      = 6 // fill, stroke and add to clip
-	RenderClip        = 7 // add to clip only
+	RenderFill       = 0 // fill glyphs
+	RenderStroke     = 1 // stroke glyph outlines
+	RenderFillStroke = 2 // fill then stroke
+	RenderInvisible  = 3 // neither (useful for OCR text layers)
+	RenderFillClip   = 4 // fill and add to clip
+	RenderStrokeClip = 5 // stroke and add to clip
+	RenderFSClip     = 6 // fill, stroke and add to clip
+	RenderClip       = 7 // add to clip only
 )
 
 // SetFont selects font f at the given size in points for subsequent text. The
@@ -49,17 +52,26 @@ func (p *Page) SetLeading(v float64) { p.leading = v }
 // SetRenderMode sets the text rendering mode (Tr); see the Render constants.
 func (p *Page) SetRenderMode(mode int) { p.renderMode = mode }
 
-// emitTextState writes the current text-state operators inside a text object.
+// emitTextState writes the current text-state operators inside a text object
+// — unless they are exactly what the page last emitted. Text state is part of
+// the graphics state and persists across text objects, so a run of words in
+// the same font needs one Tf, not one per word; Restore (Q) forgets the cache
+// because it pops the state the operators set.
 func (p *Page) emitTextState() {
-	p.op("/"+p.curName+" "+ftoa(p.fontSize), "Tf")
+	var b strings.Builder
+	b.WriteString("/" + p.curName + " " + ftoa(p.fontSize) + " Tf\n")
 	if p.charSpace != 0 {
-		p.op(ftoa(p.charSpace), "Tc")
+		b.WriteString(ftoa(p.charSpace) + " Tc\n")
 	}
 	if p.wordSpace != 0 {
-		p.op(ftoa(p.wordSpace), "Tw")
+		b.WriteString(ftoa(p.wordSpace) + " Tw\n")
 	}
 	if p.renderMode != 0 {
-		p.op(strconv.Itoa(p.renderMode), "Tr")
+		b.WriteString(strconv.Itoa(p.renderMode) + " Tr\n")
+	}
+	if s := b.String(); s != p.lastTextState {
+		p.buf.WriteString(s)
+		p.lastTextState = s
 	}
 }
 
@@ -180,43 +192,103 @@ func (p *Page) WrapText(s string, maxWidth float64) []string {
 // The default Text path stays a simple left-to-right cmap mapping; use this for
 // Arabic, Indic, CJK and any text needing ligatures, marks or kerning. features
 // names OpenType feature tags to enable (e.g. "liga").
+//
+// The run is written as one TJ array per baseline segment: the viewer advances
+// the pen by each glyph's /W width itself, so the only numbers in the stream
+// are the corrections where shaping put a glyph somewhere else (kerning, a
+// positioned mark) — none at all for plain unkerned text. A glyph with a
+// vertical offset gets its own positioned Tj, since TJ cannot move the pen
+// vertically.
 func (p *Page) TextShaped(x, y float64, s string, features ...string) error {
 	if p.curFont == nil {
 		return errNoFont
 	}
-	f := p.curFont
-	use := p.doc.use[f]
 	// A face sized to unitsPerEm has scale 1, so ShapePositioned reports offsets
 	// and advances directly in font units.
-	face := f.ot.NewFace(f.ot.UnitsPerEm())
-	run := face.ShapePositioned(s, features...)
-	runes := []rune(s)
-	aligned := len(run) == len(runes)
+	face := p.curFont.ot.NewFace(p.curFont.ot.UnitsPerEm())
+	p.emitShapedRun(x, y, face.ShapePositioned(s, features...), []rune(s))
+	return nil
+}
 
-	scale := p.fontSize / float64(f.ot.UnitsPerEm())
+// tjTolerance is the smallest pen correction worth writing, in thousandths of
+// an em. One thousandth is 0.012 pt at 12 pt, below anything a rasteriser
+// shows, and it is also the granularity of /W itself: a width is rounded to
+// an integer there, so every glyph of plain text is off by up to half a
+// thousandth from its shaped advance, which must not become a correction per
+// glyph. A skipped correction is not lost — the next glyph's correction is
+// computed from the absolute shaped position, so the residual carries until
+// it is worth writing, and the pen never drifts by more than this.
+const tjTolerance = 1.0
+
+// emitShapedRun writes one shaped run as text objects: one BT..ET holding a
+// TJ array per horizontal segment, a segment break (a fresh Tm) wherever a
+// glyph carries a vertical offset. runes is the source text, used for the
+// /ToUnicode mapping: when the shaper returned one glyph per rune they are
+// paired; otherwise (ligatures) the whole text is attributed to the first
+// glyph, best effort.
+func (p *Page) emitShapedRun(x, y float64, run []opentype.PositionedGlyph, runes []rune) {
+	f := p.curFont
+	use := p.doc.use[f]
+	aligned := len(run) == len(runes)
+	upem := float64(f.ot.UnitsPerEm())
+	scale := p.fontSize / upem // font units -> points
+	toMil := 1000 / upem       // font units -> thousandths of an em
+
 	p.op("", "BT")
 	p.emitTextState()
-	pen := 0
+
+	var arr strings.Builder // the TJ array being built, without its brackets
+	shaperPen := 0          // font units, where shaping puts the next glyph's origin
+	segOrigin := 0          // shaperPen at the current segment's Tm
+	viewerPen := 0.0        // thousandths of an em past segOrigin, where the viewer's pen is
+	open := false           // a segment Tm has been written and arr may hold glyphs
+	flush := func() {
+		if arr.Len() > 0 {
+			p.op("["+arr.String()+"]", "TJ")
+			arr.Reset()
+		}
+	}
 	for i, g := range run {
 		var rs []rune
 		switch {
 		case aligned:
 			rs = []rune{runes[i]}
 		case i == 0:
-			rs = runes // best effort: attribute the whole run to the first glyph
+			rs = runes
 		}
 		use.mark(g.Glyph, rs)
 
-		tx := x + float64(pen+g.XOffset)*scale
-		ty := y + float64(g.YOffset)*scale
-		p.op(nums(1, 0, 0, 1, tx, ty), "Tm")
-		var b strings.Builder
-		b.WriteByte('<')
-		writeHex16(&b, uint16(g.Glyph))
-		b.WriteByte('>')
-		p.op(b.String(), "Tj")
-		pen += g.XAdvance
+		if g.YOffset != 0 {
+			// Out of the baseline: its own positioned show, then a fresh segment.
+			flush()
+			p.op(nums(1, 0, 0, 1, x+float64(shaperPen+g.XOffset)*scale, y+float64(g.YOffset)*scale), "Tm")
+			p.op(hexGlyph(g.Glyph), "Tj")
+			shaperPen += g.XAdvance
+			open = false
+			continue
+		}
+		if !open {
+			p.op(nums(1, 0, 0, 1, x+float64(shaperPen)*scale, y), "Tm")
+			segOrigin, viewerPen, open = shaperPen, 0, true
+		}
+		want := float64(shaperPen-segOrigin+g.XOffset) * toMil
+		if adj := viewerPen - want; math.Abs(adj) >= tjTolerance {
+			arr.WriteString(" " + ftoa(adj) + " ")
+			viewerPen = want
+		}
+		arr.WriteString(hexGlyph(g.Glyph))
+		viewerPen += float64(f.glyphWidth1000(g.Glyph))
+		shaperPen += g.XAdvance
 	}
+	flush()
 	p.op("", "ET")
-	return nil
+}
+
+// hexGlyph returns one glyph as a hex string element ("<XXXX>").
+func hexGlyph(gid opentype.GlyphIndex) string {
+	var b strings.Builder
+	b.WriteByte('<')
+	writeHex16(&b, uint16(gid))
+	b.WriteByte('>')
+	return b.String()
 }
