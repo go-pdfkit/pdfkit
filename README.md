@@ -86,7 +86,11 @@ func main() {
 ```
 
 Shaped (complex-script) text uses `p.TextShaped(x, y, s, features...)`, which
-runs the go-opentype shaper so Arabic, Indic and CJK position correctly. The
+runs the go-opentype shaper so Arabic, Indic and CJK position correctly.
+The run is written as one `TJ` array per baseline segment — a numeric
+correction only where shaping departs from the font's own advances (kerning,
+marks), none for plain text — and unchanged font/colour state is not
+rewritten, so a page of prose is a few tens of KB compressed, not hundreds. The
 default `Text` path stays a simple left-to-right cmap mapping.
 
 ### Printing a widget tree

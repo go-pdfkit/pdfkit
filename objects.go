@@ -7,6 +7,7 @@ package pdfkit
 import (
 	"bytes"
 	"strconv"
+	"strings"
 )
 
 // pdfValue is any object that can be serialised into PDF syntax. The concrete
@@ -17,10 +18,24 @@ type pdfValue interface {
 }
 
 // ftoa formats a float in PDF's plain decimal notation: no exponent (PDF has no
-// scientific form) and no redundant trailing zeros. Whole values render without
-// a fractional part, so 100.0 becomes "100".
+// scientific form), at most four decimals, no redundant trailing zeros. Whole
+// values render without a fractional part, so 100.0 becomes "100", and a value
+// that rounds to zero is "0", never "-0".
+//
+// Four decimals of a point is a quarter of a micrometre — below anything a
+// renderer resolves — while the shortest round-trip form Go would print by
+// default runs to seventeen digits (a page height of 841.8897637795275) and,
+// repeated once per coordinate, made content streams several times larger
+// than they need to be.
 func ftoa(v float64) string {
-	return strconv.FormatFloat(v, 'f', -1, 64)
+	s := strconv.FormatFloat(v, 'f', 4, 64)
+	if strings.IndexByte(s, '.') >= 0 {
+		s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
+	}
+	if s == "-0" {
+		s = "0"
+	}
+	return s
 }
 
 // pdfName is a PDF name object such as /Type. It is written with a leading

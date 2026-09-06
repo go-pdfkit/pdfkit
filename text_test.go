@@ -105,8 +105,12 @@ func TestTextShapedAligned(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := content(p)
-	if !strings.Contains(c, "Tm") || !strings.Contains(c, "Tj") {
-		t.Errorf("shaped output missing Tm/Tj\n%s", c)
+	// One segment: one Tm, one TJ array holding all three glyphs, no Tj.
+	if strings.Count(c, " Tm\n") != 1 || strings.Count(c, "] TJ\n") != 1 || strings.Contains(c, " Tj\n") {
+		t.Errorf("shaped run should be one Tm + one TJ, got\n%s", c)
+	}
+	if !strings.Contains(c, "[<0001><0002>") {
+		t.Errorf("TJ array should start with the run's glyphs back to back, got\n%s", c)
 	}
 }
 
@@ -127,7 +131,7 @@ func TestTextShapedLigature(t *testing.T) {
 	if err := p.TextShaped(72, 700, "office", "liga"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(content(p), "Tm") {
-		t.Error("shaped ligature output missing Tm")
+	if c := content(p); !strings.Contains(c, " Tm\n") || !strings.Contains(c, "] TJ\n") {
+		t.Errorf("shaped ligature output missing Tm/TJ\n%s", c)
 	}
 }

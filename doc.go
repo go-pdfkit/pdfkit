@@ -30,7 +30,11 @@
 //
 // LoadFont parses a font blob once; a Font is immutable and may be shared.
 // SetFont selects it for a page, then Text draws a left-to-right run. TextShaped
-// runs the go-opentype shaper (GSUB/GPOS) for complex scripts. Every embedded
+// runs the go-opentype shaper (GSUB/GPOS) for complex scripts and writes the
+// run as one TJ array per baseline segment, with a numeric correction only
+// where shaping departs from the font's own advances (kerning, marks). Font
+// and colour operators are written once and not repeated while unchanged;
+// coordinates carry at most four decimals. Every embedded
 // font is written as a subset with Identity-H encoding, a per-glyph /W width
 // array and a /ToUnicode CMap so copy and paste recover the original text.
 // TrueType outlines embed as a subsetted FontFile2 / CIDFontType2 with a
