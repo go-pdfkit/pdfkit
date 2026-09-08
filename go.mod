@@ -6,7 +6,7 @@ require github.com/go-opentype/opentype v0.12.0
 
 require (
 	github.com/go-widgets/painter v0.13.0
-	github.com/go-widgets/toolkit v0.313.0
+	github.com/go-widgets/toolkit v0.316.0
 	rsc.io/pdf v0.1.1
 )
 
