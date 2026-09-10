@@ -66,6 +66,18 @@ func (n pdfInt) encodePDF(b *bytes.Buffer) {
 	b.WriteString(strconv.FormatInt(int64(n), 10))
 }
 
+// pdfBool is a PDF boolean, written as the bare keyword true or false. A name
+// would encode as /true, which is a different object.
+type pdfBool bool
+
+func (v pdfBool) encodePDF(b *bytes.Buffer) {
+	if v {
+		b.WriteString("true")
+	} else {
+		b.WriteString("false")
+	}
+}
+
 // pdfReal is a PDF real (floating-point) object.
 type pdfReal float64
 
