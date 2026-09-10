@@ -47,8 +47,9 @@ type Shading struct {
 // Wrap the pair in Save and Restore, or the clip stays in force for everything
 // drawn afterwards.
 //
-// It reports an error for fewer than two stops, for offsets that do not
-// strictly increase, and for stops that do not all share one colour space —
+// It reports an error for fewer than two stops, for a stop with no colour, for
+// offsets that do not strictly increase, and for stops that do not all share
+// one colour space —
 // PDF names the space once for the whole shading, so a gradient from grey to
 // CMYK cannot be written rather than being quietly converted.
 func (p *Page) Shade(s Shading) error {
@@ -67,11 +68,16 @@ func (s Shading) dict() (*pdfDict, error) {
 	if len(s.Stops) < 2 {
 		return nil, fmt.Errorf("pdfkit: a shading needs at least two stops, got %d", len(s.Stops))
 	}
-	space := s.Stops[0].Color.space()
+	// Every stop is checked for a colour before any is asked for its space:
+	// asking first would panic on a nil colour in stop 0 rather than say what
+	// is wrong with it.
 	for i, st := range s.Stops {
 		if st.Color == nil {
 			return nil, fmt.Errorf("pdfkit: shading stop %d has no colour", i)
 		}
+	}
+	space := s.Stops[0].Color.space()
+	for i, st := range s.Stops {
 		if st.Color.space() != space {
 			return nil, fmt.Errorf("pdfkit: shading stop %d is %s where stop 0 is %s; one shading names one colour space",
 				i, st.Color.space(), space)

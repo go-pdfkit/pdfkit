@@ -152,6 +152,8 @@ func TestAShadingRefusesWhatPDFCannotName(t *testing.T) {
 		{"offsets must increase", Shading{Stops: []Stop{{0.5, Gray{0}}, {0.5, Gray{1}}}}},
 		{"offsets must not go backwards", Shading{Stops: []Stop{{1, Gray{0}}, {0, Gray{1}}}}},
 		{"one shading names one colour space", Shading{Stops: []Stop{{0, Gray{0}}, {1, RGB8(1, 2, 3)}}}},
+		{"a stop with no colour", Shading{Stops: []Stop{{0, Gray{0}}, {1, nil}}}},
+		{"the first stop with no colour", Shading{Stops: []Stop{{0, nil}, {1, Gray{1}}}}},
 	}
 	for _, c := range cases {
 		if err := p.Shade(c.s); err == nil {
