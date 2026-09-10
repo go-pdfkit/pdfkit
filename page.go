@@ -37,6 +37,12 @@ type Page struct {
 	// registration order; each becomes a /GS<i> resource.
 	extGStates []extGState
 
+	// shadings records the gradients this page paints, in registration order;
+	// each becomes a /Sh<i> resource. They are held per page and written into
+	// the resource dictionary directly, like the graphics states above: a
+	// shading is a small dictionary, not something worth an indirect object.
+	shadings []*pdfDict
+
 	// links are the clickable link annotations on this page, in the order added;
 	// each becomes a /Link annotation in the page's /Annots array.
 	links []linkAnnot
@@ -304,6 +310,13 @@ func (p *Page) resources(fontRefs map[*Font]objRef, imageRefs map[*imageXObject]
 			egs.set("GS"+strconv.Itoa(i), d)
 		}
 		res.set("ExtGState", egs)
+	}
+	if len(p.shadings) > 0 {
+		sh := newDict()
+		for i, d := range p.shadings {
+			sh.set("Sh"+strconv.Itoa(i), d)
+		}
+		res.set("Shading", sh)
 	}
 	return res
 }

@@ -11,6 +11,12 @@ import "strings"
 // stroking (stroke=true). Component values are in the range [0,1].
 type Color interface {
 	ops(stroke bool) string
+	// space is the colour space name a shading has to declare, and comps the
+	// components in it. A gradient names its space once and then gives every
+	// stop as bare numbers, so a colour has to be able to say both apart from
+	// the operator that selects it.
+	space() pdfName
+	comps() []float64
 }
 
 // join renders the components followed by the fill or stroke operator.
@@ -35,12 +41,18 @@ func (c Gray) ops(stroke bool) string {
 	return join([]float64{c.V}, "g", "G", stroke)
 }
 
+func (c Gray) space() pdfName   { return "DeviceGray" }
+func (c Gray) comps() []float64 { return []float64{c.V} }
+
 // RGB is a DeviceRGB colour with red, green and blue components in [0,1].
 type RGB struct{ R, G, B float64 }
 
 func (c RGB) ops(stroke bool) string {
 	return join([]float64{c.R, c.G, c.B}, "rg", "RG", stroke)
 }
+
+func (c RGB) space() pdfName   { return "DeviceRGB" }
+func (c RGB) comps() []float64 { return []float64{c.R, c.G, c.B} }
 
 // RGB8 builds an RGB colour from 8-bit components (0-255).
 func RGB8(r, g, b uint8) RGB {
@@ -54,3 +66,6 @@ type CMYK struct{ C, M, Y, K float64 }
 func (c CMYK) ops(stroke bool) string {
 	return join([]float64{c.C, c.M, c.Y, c.K}, "k", "K", stroke)
 }
+
+func (c CMYK) space() pdfName   { return "DeviceCMYK" }
+func (c CMYK) comps() []float64 { return []float64{c.C, c.M, c.Y, c.K} }
