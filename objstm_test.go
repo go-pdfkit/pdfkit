@@ -343,6 +343,12 @@ func TestObjectStreamsRichDocument(t *testing.T) {
 func TestObjectStreamsQPDF(t *testing.T) {
 	qpdf, err := exec.LookPath("qpdf")
 	if err != nil {
+		// A skipped oracle reads exactly like a passing one. The lane that
+		// installs qpdf sets this, so its absence there is a broken lane and
+		// not a reason to go quietly green.
+		if os.Getenv("PDFKIT_REQUIRE_QPDF") != "" {
+			t.Fatalf("PDFKIT_REQUIRE_QPDF is set but qpdf is not installed: %v", err)
+		}
 		t.Skip("qpdf not installed")
 	}
 	dir := t.TempDir()

@@ -26,10 +26,18 @@ jobs:
           check-latest: true
           cache: true
 
+      # qpdf is a second, independent oracle: it reads back what we wrote and
+      # says whether it is well formed. Without it TestObjectStreamsQPDF skips
+      # and the lane is green over the one test a stranger performs.
+      - name: qpdf, the independent oracle for what we write
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq qpdf
+
       - name: go vet
         run: go vet ./...
 
       - name: Test with coverage
+        env:
+          PDFKIT_REQUIRE_QPDF: "1"
         run: go test -covermode=set -coverprofile=coverage.out ./...
 
       - name: Assert exact 100% statement coverage
