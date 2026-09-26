@@ -140,7 +140,18 @@ TrueType font, a synthesised CFF2 font and a bundled OFL OpenType/CFF font.
 - A **CID-keyed CFF** or a **CFF2 (variable)** font cannot be charstring-subsetted
   by the preserve-numbering path, so it gracefully falls back to embedding the
   whole `CFF`/`CFF2` table.
-- Encryption, tagged/PDF-A, forms and annotations are not yet implemented.
+- **Link annotations are written here**: `AddLink`, `AddNamedDest` and
+  `AddNamedLink` put a clickable `/Link` with a URI or a named destination over
+  a rectangle. No other annotation type is, and nothing here draws an
+  appearance stream for one — `go-pdfkit/render` does that when reading.
+- **Encryption is not written here.** It is not missing from the organisation:
+  `go-pdfkit/reader` reads RC4-40 through AES-256 and writes AES-128 and
+  AES-256 with permissions and both passwords.
+- **Forms are not written here** — `go-pdfkit/forms` reads, fills and flattens
+  an AcroForm, and `go-pdfkit/xfa` reads the other kind.
+- **PDF/A and tagged PDF are not written here**, and PDF/A is not implemented
+  anywhere in the organisation. A structure tree is only ever preserved:
+  `go-pdfkit/ops` rebuilds one it is given around the pages that survive.
 
 ## License
 
