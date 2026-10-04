@@ -44,11 +44,11 @@ func (s PageSize) Portrait() PageSize {
 
 // Standard ISO 216 A-series and US page sizes, in points.
 var (
-	A3     = PageSize{Width: Mm(297), Height: Mm(420)}
-	A4     = PageSize{Width: Mm(210), Height: Mm(297)}
-	A5     = PageSize{Width: Mm(148), Height: Mm(210)}
-	Letter = PageSize{Width: In(8.5), Height: In(11)}
-	Legal  = PageSize{Width: In(8.5), Height: In(14)}
+	A3      = PageSize{Width: Mm(297), Height: Mm(420)}
+	A4      = PageSize{Width: Mm(210), Height: Mm(297)}
+	A5      = PageSize{Width: Mm(148), Height: Mm(210)}
+	Letter  = PageSize{Width: In(8.5), Height: In(11)}
+	Legal   = PageSize{Width: In(8.5), Height: In(14)}
 	Tabloid = PageSize{Width: In(11), Height: In(17)}
 )
 
