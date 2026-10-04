@@ -88,11 +88,11 @@ func TestReadPSNameEdgeCases(t *testing.T) {
 	w.u16(3)                // count (claims 3 records)
 	w.u16(uint16(6 + 3*12)) // storage offset
 	// record 0: nameID 1 (skipped)
-	w.u16(3); w.u16(1); w.u16(0); w.u16(1); w.u16(4); w.u16(0)
+	w.u16s(3, 1, 0, 1, 4, 0)
 	// record 1: nameID 6, platform 0 (Unicode UTF-16BE) "Uni"
-	w.u16(0); w.u16(3); w.u16(0); w.u16(6); w.u16(6); w.u16(0)
+	w.u16s(0, 3, 0, 6, 6, 0)
 	// record 2: nameID 6 but offset/length out of range (skipped)
-	w.u16(1); w.u16(0); w.u16(0); w.u16(6); w.u16(0xffff); w.u16(0xffff)
+	w.u16s(1, 0, 0, 6, 0xffff, 0xffff)
 	storage := []byte{0, 'U', 0, 'n', 0, 'i'}
 	w.b = append(w.b, storage...)
 	if s := readPSName(w.b); s != "Uni" {

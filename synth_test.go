@@ -84,6 +84,15 @@ type bw struct{ b []byte }
 
 func (w *bw) u8(v uint8)   { w.b = append(w.b, v) }
 func (w *bw) u16(v uint16) { w.b = binary.BigEndian.AppendUint16(w.b, v) }
+
+// u16s writes several big-endian uint16s, for a record whose fields read better on
+// ONE line -- a name-table record is six numbers in a fixed order, and gofmt splits
+// "w.u16(3); w.u16(1); …" into six lines, which hides that shape.
+func (w *bw) u16s(vs ...uint16) {
+	for _, v := range vs {
+		w.u16(v)
+	}
+}
 func (w *bw) u32(v uint32) { w.b = binary.BigEndian.AppendUint32(w.b, v) }
 func (w *bw) i16(v int16)  { w.u16(uint16(v)) }
 

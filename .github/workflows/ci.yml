@@ -32,6 +32,18 @@ jobs:
       - name: qpdf, the independent oracle for what we write
         run: sudo apt-get update -qq && sudo apt-get install -y -qq qpdf
 
+      # The check this lane never had. The tree was unformatted on main -- two
+      # files, under both 1.26's gofmt and 1.27's -- and nothing said so, because
+      # every sibling repository in the fleet checks gofmt and this one did not.
+      - name: Gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt needs to be run on:"
+            echo "$out"
+            exit 1
+          fi
+
       - name: go vet
         run: go vet ./...
 
