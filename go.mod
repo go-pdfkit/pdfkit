@@ -2,17 +2,16 @@ module github.com/go-pdfkit/pdfkit
 
 go 1.27.1
 
-require github.com/go-opentype/opentype v0.13.0
-
 require (
-	github.com/go-widgets/painter v0.13.0
-	github.com/go-widgets/toolkit v0.321.2
+	github.com/go-opentype/opentype v0.15.0
+	github.com/go-widgets/painter v0.15.0
+	github.com/go-widgets/toolkit v0.326.0
 	rsc.io/pdf v0.1.1
 )
 
 require (
 	github.com/ajroetker/go-highway v0.0.4 // indirect
-	github.com/andybalholm/brotli v1.2.5 // indirect
+	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/go-crdt/collab v0.74.0 // indirect
 	github.com/go-crdt/crdt v0.55.0 // indirect
