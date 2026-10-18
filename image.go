@@ -52,19 +52,7 @@ func imageKey(filter, colorSpace string, w, h, bpc int, samples, alpha []byte) s
 func (p *Page) DrawImage(img image.Image, r Rect) {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
-	rgb := make([]byte, 0, w*h*3)
-	alpha := make([]byte, 0, w*h)
-	hasAlpha := false
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			cr, cg, cb, ca := img.At(x, y).RGBA()
-			rgb = append(rgb, byte(cr>>8), byte(cg>>8), byte(cb>>8))
-			alpha = append(alpha, byte(ca>>8))
-			if ca != 0xffff {
-				hasAlpha = true
-			}
-		}
-	}
+	rgb, alpha, hasAlpha := samples(img)
 	if !hasAlpha {
 		alpha = nil // a fully opaque image gets no soft mask, and keys as such
 	}
@@ -91,6 +79,50 @@ func (p *Page) DrawImage(img image.Image, r Rect) {
 		return x
 	})
 	p.placeImage(x, r)
+}
+
+// samples splits an image into 8-bit RGB samples and alpha samples, the
+// colour channels as image.Image's RGBA method gives them (alpha-
+// premultiplied), and reports whether any pixel is not fully opaque.
+//
+// An *image.RGBA already stores exactly those bytes, so it is copied row by
+// row; any other image goes through At, which boxes every pixel in an
+// interface (a 1280×720 page: 921,600 allocations).
+func samples(img image.Image) (rgb, alpha []byte, hasAlpha bool) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	rgb = make([]byte, w*h*3)
+	alpha = make([]byte, w*h)
+	if m, ok := img.(*image.RGBA); ok {
+		o, a := 0, 0
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			row := m.Pix[m.PixOffset(b.Min.X, y):m.PixOffset(b.Max.X, y)]
+			for i := 0; i < len(row); i += 4 {
+				rgb[o], rgb[o+1], rgb[o+2] = row[i], row[i+1], row[i+2]
+				alpha[a] = row[i+3]
+				if row[i+3] != 0xff {
+					hasAlpha = true
+				}
+				o += 3
+				a++
+			}
+		}
+		return rgb, alpha, hasAlpha
+	}
+	o, a := 0, 0
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			cr, cg, cb, ca := img.At(x, y).RGBA()
+			rgb[o], rgb[o+1], rgb[o+2] = byte(cr>>8), byte(cg>>8), byte(cb>>8)
+			alpha[a] = byte(ca >> 8)
+			if ca != 0xffff {
+				hasAlpha = true
+			}
+			o += 3
+			a++
+		}
+	}
+	return rgb, alpha, hasAlpha
 }
 
 // DrawPNG decodes PNG bytes and embeds the image into r. It returns an error if
