@@ -17,7 +17,8 @@ type Stop struct {
 }
 
 // A Shading is an axial gradient: colour interpolated along the line from
-// (X0,Y0) to (X1,Y1), in the page's user space.
+// (X0,Y0) to (X1,Y1), in the page's user space (ISO 32000-1 §8.7.4.5.3, a
+// type 2 shading).
 //
 // It is what a logo, a chart's fill and a printed background all need, and
 // until now the only way to put one in a PDF from here was to rasterise it —
@@ -27,11 +28,20 @@ type Stop struct {
 // Extend says whether the end colours carry on past the ends of the axis.
 // Without them the area beyond each end is left unpainted, which for a gradient
 // used as a background shows as two hard bands of nothing.
+//
+// With Radial set it is a radial gradient instead (ISO 32000-1 §8.7.4.5.4,
+// a type 3 shading): colour interpolated from the circle of radius R0 centred
+// on (X0,Y0) to the circle of radius R1 centred on (X1,Y1). A CSS
+// radial-gradient is the case X0,Y0 = X1,Y1 and R0 = 0; an elliptical one is
+// that circle drawn under a Transform that scales one axis.
 type Shading struct {
 	X0, Y0, X1, Y1 float64
 	Stops          []Stop
 	ExtendStart    bool
 	ExtendEnd      bool
+
+	Radial bool
+	R0, R1 float64
 }
 
 // Shade paints the gradient over the current clip.
@@ -102,9 +112,23 @@ func (s Shading) dict() (*pdfDict, error) {
 	}
 
 	d := newDict()
-	d.set("ShadingType", pdfInt(2))
-	d.set("ColorSpace", space)
-	d.set("Coords", pdfArray{pdfReal(s.X0), pdfReal(s.Y0), pdfReal(s.X1), pdfReal(s.Y1)})
+	if s.Radial {
+		// §8.7.4.5.4: both radii shall be >= 0, and with both 0 nothing is
+		// painted — which is never what a caller asking for a gradient meant.
+		if s.R0 < 0 || s.R1 < 0 || !finite(s.R0) || !finite(s.R1) {
+			return nil, fmt.Errorf("pdfkit: radial shading radii %v and %v; both must be finite and >= 0", s.R0, s.R1)
+		}
+		if s.R0 == 0 && s.R1 == 0 {
+			return nil, fmt.Errorf("pdfkit: radial shading with both radii 0 paints nothing")
+		}
+		d.set("ShadingType", pdfInt(3))
+		d.set("ColorSpace", space)
+		d.set("Coords", pdfArray{pdfReal(s.X0), pdfReal(s.Y0), pdfReal(s.R0), pdfReal(s.X1), pdfReal(s.Y1), pdfReal(s.R1)})
+	} else {
+		d.set("ShadingType", pdfInt(2))
+		d.set("ColorSpace", space)
+		d.set("Coords", pdfArray{pdfReal(s.X0), pdfReal(s.Y0), pdfReal(s.X1), pdfReal(s.Y1)})
+	}
 	d.set("Function", stitch(stops))
 	d.set("Extend", pdfArray{pdfBool(s.ExtendStart), pdfBool(s.ExtendEnd)})
 	return d, nil

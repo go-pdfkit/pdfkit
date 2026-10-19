@@ -30,8 +30,16 @@ Go-idiomatic rather than a gem port.
   **CFF charstring subsetting** (only the used glyphs' charstrings are embedded).
   Char/word spacing, leading, render modes, a simple wrapping helper, and an
   optional **shaped-text** API (GSUB/GPOS via go-opentype) for Arabic/Indic/CJK.
+  A layout engine that places its own glyphs draws them with
+  **`Page.ShowGlyphs`** — glyph ids at the positions it computed, each with the
+  text it stands for — and hands over the fonts it already parsed with
+  **`NewFont(*opentype.Font)`**.
+- **Gradients** — axial (type 2) and **radial (type 3)** shadings with any
+  number of stops, painted through the clip (`Page.Shade`).
 - **Images** — JPEG embedded directly (DCTDecode); PNG and any `image.Image`
-  rasterised as XObjects (FlateDecode) with an `/SMask` for alpha.
+  rasterised as XObjects (FlateDecode) with an `/SMask` for alpha, the colour
+  samples written straight (not premultiplied), as a soft mask without
+  `/Matte` requires.
   **Pixel-identical bitmaps are shared**: each image is content-addressed by its
   *uncompressed* samples, so a repeat is embedded — and compressed — once per
   document and every placement, on any page, references the one XObject.
@@ -92,6 +100,14 @@ correction only where shaping departs from the font's own advances (kerning,
 marks), none for plain text — and unchanged font/colour state is not
 rewritten, so a page of prose is a few tens of KB compressed, not hundreds. The
 default `Text` path stays a simple left-to-right cmap mapping.
+
+Text a layout engine has already shaped and placed goes through
+`p.ShowGlyphs(x, y, glyphs)`: each `pdfkit.Glyph` is a glyph id, its origin's
+offset from the run origin and the text it stands for (the `/ToUnicode`
+entry). The same `TJ` encoding applies — a correction only where a position
+departs from the font's own advance by a thousandth of an em or more, computed
+from absolute positions so that the pen never drifts. go-webengine's
+`pdfcanvas` draws a laid-out page this way.
 
 ### Printing a widget tree
 

@@ -81,9 +81,16 @@ func (p *Page) DrawImage(img image.Image, r Rect) {
 	p.placeImage(x, r)
 }
 
-// samples splits an image into 8-bit RGB samples and alpha samples, the
-// colour channels as image.Image's RGBA method gives them (alpha-
-// premultiplied), and reports whether any pixel is not fully opaque.
+// samples splits an image into 8-bit RGB samples and alpha samples, and
+// reports whether any pixel is not fully opaque.
+//
+// The colour samples are written straight, NOT alpha-premultiplied: an image
+// with a soft mask whose /Matte entry is absent "shall not be preblended"
+// (ISO 32000-1 §11.6.5.3, Table 145), and a viewer composites its samples
+// as given. image.Image's RGBA method and an *image.RGBA's Pix are both
+// premultiplied, so every pixel that is neither opaque nor fully transparent
+// is divided back by its alpha here; before, a half-transparent edge came out
+// darkened towards black.
 //
 // An *image.RGBA already stores exactly those bytes, so it is copied row by
 // row; any other image goes through At, which boxes every pixel in an
@@ -102,6 +109,7 @@ func samples(img image.Image) (rgb, alpha []byte, hasAlpha bool) {
 				alpha[a] = row[i+3]
 				if row[i+3] != 0xff {
 					hasAlpha = true
+					unpremultiply(rgb[o:o+3], row[i+3])
 				}
 				o += 3
 				a++
@@ -117,12 +125,29 @@ func samples(img image.Image) (rgb, alpha []byte, hasAlpha bool) {
 			alpha[a] = byte(ca >> 8)
 			if ca != 0xffff {
 				hasAlpha = true
+				unpremultiply(rgb[o:o+3], byte(ca>>8))
 			}
 			o += 3
 			a++
 		}
 	}
 	return rgb, alpha, hasAlpha
+}
+
+// unpremultiply turns three premultiplied 8-bit samples into straight ones
+// for alpha a, rounding to nearest. A fully transparent pixel's colour is
+// meaningless and is left as it is (premultiplied, it is 0 already).
+func unpremultiply(c []byte, a byte) {
+	if a == 0 || a == 0xff {
+		return
+	}
+	for i := range c {
+		v := (int(c[i])*255 + int(a)/2) / int(a)
+		if v > 255 {
+			v = 255
+		}
+		c[i] = byte(v)
+	}
 }
 
 // DrawPNG decodes PNG bytes and embeds the image into r. It returns an error if
