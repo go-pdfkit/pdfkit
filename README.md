@@ -158,8 +158,14 @@ TrueType font, a synthesised CFF2 font and a bundled OFL OpenType/CFF font.
   whole `CFF`/`CFF2` table.
 - **Link annotations are written here**: `AddLink`, `AddNamedDest` and
   `AddNamedLink` put a clickable `/Link` with a URI or a named destination over
-  a rectangle. No other annotation type is, and nothing here draws an
-  appearance stream for one — `go-pdfkit/render` does that when reading.
+  a rectangle. **Text (sticky note) annotations** too, since v0.16.0:
+  `Page.AddTextAnnotation` puts a note with its contents, author, subject,
+  icon, colour and opacity on a page — go-slides carries a slide's speaker
+  notes in them. No other annotation type is written, and nothing here draws
+  an appearance stream — `go-pdfkit/render` does that when reading.
+- **Bookmarks** (`AddOutlineItem`) nest by level; since v0.16.0
+  `AddOutlineItemWith` styles a title bold or italic and points it at a place on
+  the page (`[page /XYZ x y null]`) instead of fitting the whole page.
 - **Encryption is not written here.** It is not missing from the organisation:
   `go-pdfkit/reader` reads RC4-40 through AES-256 and writes AES-128 and
   AES-256 with permissions and both passwords.

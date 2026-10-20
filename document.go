@@ -86,17 +86,42 @@ type outlineItem struct {
 	title     string
 	level     int
 	pageIndex int
+	opts      OutlineOptions
 }
+
+// OutlineOptions refines a bookmark added with AddOutlineItemWith.
+type OutlineOptions struct {
+	// Bold and Italic style the title in the viewer's sidebar (the item's /F
+	// flags).
+	Bold, Italic bool
+	// At, when not nil, is the point of the page the bookmark scrolls to — the
+	// top left of the view, in the page's user space — instead of fitting the
+	// whole page (the destination is [page /XYZ x y null]: the zoom is kept).
+	At *Point
+}
+
+// Point is a position in a page's user space, in points.
+type Point struct{ X, Y float64 }
 
 // AddOutlineItem appends a bookmark to the document outline: title at nesting level
 // (1 = top level; a higher level nests under the most recent shallower item),
 // jumping to page pageIndex (0-based). Out-of-range pages are ignored. Items build
 // the /Outlines tree a PDF viewer shows as its navigation sidebar.
 func (d *Document) AddOutlineItem(title string, level, pageIndex int) {
+	d.AddOutlineItemWith(title, level, pageIndex, OutlineOptions{})
+}
+
+// AddOutlineItemWith is AddOutlineItem with a styled title and a position on
+// the page.
+func (d *Document) AddOutlineItemWith(title string, level, pageIndex int, opts OutlineOptions) {
 	if level < 1 || pageIndex < 0 || pageIndex >= len(d.pages) {
 		return
 	}
-	d.outline = append(d.outline, outlineItem{title: title, level: level, pageIndex: pageIndex})
+	if opts.At != nil {
+		at := *opts.At
+		opts.At = &at // the caller's value may change under us
+	}
+	d.outline = append(d.outline, outlineItem{title: title, level: level, pageIndex: pageIndex, opts: opts})
 }
 
 // New returns a new, empty Document configured by opts.
@@ -225,8 +250,8 @@ func (d *Document) Write(w io.Writer) error {
 		node.set("MediaBox", pdfArray{pdfReal(0), pdfReal(0), pdfReal(p.width), pdfReal(p.height)})
 		node.set("Contents", cstream)
 		node.set("Resources", p.resources(fontRefs, imageRefs))
-		if len(p.links) > 0 {
-			node.set("Annots", d.buildLinkAnnots(bd, p.links))
+		if annots := append(d.buildLinkAnnots(bd, p.links), d.buildTextAnnots(bd, p.notes)...); len(annots) > 0 {
+			node.set("Annots", annots)
 		}
 		bd.put(pageRefs[i], node)
 		for _, dt := range p.dests {
@@ -410,7 +435,14 @@ func (d *Document) fillOutline(bd *builder, pageRefs []objRef, ns []*outlineNode
 		od := newDict()
 		od.set("Title", pdfTextString(n.item.title))
 		od.set("Parent", parent)
-		od.set("Dest", pdfArray{pageRefs[n.item.pageIndex], pdfName("Fit")})
+		if at := n.item.opts.At; at != nil {
+			od.set("Dest", pdfArray{pageRefs[n.item.pageIndex], pdfName("XYZ"), pdfReal(at.X), pdfReal(at.Y), pdfNull{}})
+		} else {
+			od.set("Dest", pdfArray{pageRefs[n.item.pageIndex], pdfName("Fit")})
+		}
+		if f := outlineFlags(n.item.opts); f != 0 {
+			od.set("F", pdfInt(f))
+		}
 		if i > 0 {
 			od.set("Prev", ns[i-1].ref)
 		}
@@ -425,6 +457,54 @@ func (d *Document) fillOutline(bd *builder, pageRefs []objRef, ns []*outlineNode
 		bd.put(n.ref, od)
 		d.fillOutline(bd, pageRefs, n.children, n.ref)
 	}
+}
+
+// outlineFlags is an outline item's /F: bit 1 italic, bit 2 bold (PDF 32000-1
+// 12.3.3).
+func outlineFlags(o OutlineOptions) int {
+	f := 0
+	if o.Italic {
+		f |= 1
+	}
+	if o.Bold {
+		f |= 2
+	}
+	return f
+}
+
+// buildTextAnnots emits one /Text annotation object per note and returns their
+// references, for the page's /Annots array (PDF 32000-1 12.5.6.4).
+func (d *Document) buildTextAnnots(bd *builder, notes []TextAnnotation) pdfArray {
+	var annots pdfArray
+	for _, n := range notes {
+		a := newDict()
+		a.set("Type", pdfName("Annot"))
+		a.set("Subtype", pdfName("Text"))
+		a.set("Rect", pdfArray{
+			pdfReal(n.Rect.X), pdfReal(n.Rect.Y),
+			pdfReal(n.Rect.X + n.Rect.Width), pdfReal(n.Rect.Y + n.Rect.Height),
+		})
+		a.set("Contents", pdfTextString(n.Contents))
+		if n.Title != "" {
+			a.set("T", pdfTextString(n.Title))
+		}
+		if n.Subject != "" {
+			a.set("Subj", pdfTextString(n.Subject))
+		}
+		name := n.Name
+		if name == "" {
+			name = "Note"
+		}
+		a.set("Name", pdfName(name))
+		if len(n.Color) == 3 {
+			a.set("C", pdfArray{pdfReal(n.Color[0]), pdfReal(n.Color[1]), pdfReal(n.Color[2])})
+		}
+		if n.Opacity > 0 && n.Opacity <= 1 {
+			a.set("CA", pdfReal(n.Opacity))
+		}
+		annots = append(annots, bd.add(a))
+	}
+	return annots
 }
 
 // producer returns the effective /Producer string.

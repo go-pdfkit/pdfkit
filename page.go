@@ -57,6 +57,10 @@ type Page struct {
 	// each becomes a /Link annotation in the page's /Annots array.
 	links []linkAnnot
 
+	// notes are the text (sticky note) annotations on this page, in the order
+	// added; they follow the links in /Annots.
+	notes []TextAnnotation
+
 	// dests are the named destinations anchored on this page; each becomes an entry
 	// in the document's /Dests name tree, jumped to by an internal GoTo link.
 	dests []namedDest
@@ -96,6 +100,39 @@ func (p *Page) AddNamedDest(name string, x, y float64) {
 // <a href="#name"> for \hyperlink.
 func (p *Page) AddNamedLink(rect Rect, dest string) {
 	p.links = append(p.links, linkAnnot{rect: rect, dest: dest})
+}
+
+// TextAnnotation is a text ("sticky note") annotation: an icon on the page
+// that opens a pop-up with Contents, as a reviewer's comment does. It is how a
+// slide's speaker notes travel in a PDF.
+type TextAnnotation struct {
+	// Rect is where the icon sits, in the page's user space (origin at the
+	// bottom left). A viewer draws the icon at a size of its own.
+	Rect Rect
+	// Contents is the note's text; line feeds start new lines.
+	Contents string
+	// Title is the note's author (/T), shown in the pop-up's title bar.
+	Title string
+	// Subject is a short summary (/Subj).
+	Subject string
+	// Name is the icon, one of the standard ones — "Note" (the default),
+	// "Comment", "Key", "Help", "NewParagraph", "Paragraph" or "Insert".
+	Name string
+	// Color is the icon's RGB colour, three components in 0..1; nil leaves
+	// it to the viewer.
+	Color []float64
+	// Opacity is the icon's constant opacity (/CA), in (0, 1]; 0 leaves it
+	// out, meaning opaque.
+	Opacity float64
+}
+
+// AddTextAnnotation adds a text annotation to the page. An annotation with no
+// Contents is ignored.
+func (p *Page) AddTextAnnotation(a TextAnnotation) {
+	if a.Contents == "" {
+		return
+	}
+	p.notes = append(p.notes, a)
 }
 
 // Width returns the page width in points.

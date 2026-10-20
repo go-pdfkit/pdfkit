@@ -78,6 +78,11 @@ func (v pdfBool) encodePDF(b *bytes.Buffer) {
 	}
 }
 
+// pdfNull is the PDF null object, the bare keyword null.
+type pdfNull struct{}
+
+func (pdfNull) encodePDF(b *bytes.Buffer) { b.WriteString("null") }
+
 // pdfReal is a PDF real (floating-point) object.
 type pdfReal float64
 
