@@ -166,6 +166,12 @@ TrueType font, a synthesised CFF2 font and a bundled OFL OpenType/CFF font.
 - **Bookmarks** (`AddOutlineItem`) nest by level; since v0.16.0
   `AddOutlineItemWith` styles a title bold or italic and points it at a place on
   the page (`[page /XYZ x y null]`) instead of fitting the whole page.
+- **Replacement text** (after v0.16.0): `Page.BeginActualText(s)` …
+  `EndMarkedContent()` wrap what is drawn in a `/Span` with `/ActualText`, the
+  text extraction, copying and search use instead of the glyphs. An empty
+  string hides decorations from the text (numbers in a margin, a numbered disc
+  after a line of code): Poppler's `pdftotext` then leaves them out. Spans left
+  open are closed when the page is written.
 - **Encryption is not written here.** It is not missing from the organisation:
   `go-pdfkit/reader` reads RC4-40 through AES-256 and writes AES-128 and
   AES-256 with permissions and both passwords.
