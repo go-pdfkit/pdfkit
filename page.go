@@ -18,6 +18,9 @@ type Page struct {
 	width  float64
 	height float64
 	buf    bytes.Buffer
+	// marked counts the marked-content spans open (markedcontent.go); the
+	// page closes them when it is finished.
+	marked int
 
 	usedFonts  map[*Font]bool
 	usedImages map[*imageXObject]bool
@@ -339,8 +342,14 @@ func (p *Page) SetAlpha(fill, stroke float64) {
 	p.op("/GS"+strconv.Itoa(idx), "gs")
 }
 
-// finishContent returns the accumulated content-stream bytes.
-func (p *Page) finishContent() []byte { return p.buf.Bytes() }
+// finishContent returns the accumulated content-stream bytes, closing any
+// marked-content span left open: a stream with an unbalanced BDC is invalid.
+func (p *Page) finishContent() []byte {
+	for p.marked > 0 {
+		p.EndMarkedContent()
+	}
+	return p.buf.Bytes()
+}
 
 // resources builds the page's /Resources dictionary from the fonts and images
 // it used and any transparency states it declared.
