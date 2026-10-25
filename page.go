@@ -21,6 +21,14 @@ type Page struct {
 	// marked counts the marked-content spans open (markedcontent.go); the
 	// page closes them when it is finished.
 	marked int
+	// index is the page's place in the document, from 0.
+	index int
+	// mcids are the elements of the page's tagged sequences, by MCID
+	// (structure.go); tagOpen is set while one is open, at depth tagDepth of
+	// marked.
+	mcids    []*StructElem
+	tagOpen  bool
+	tagDepth int
 
 	usedFonts  map[*Font]bool
 	usedImages map[*imageXObject]bool
@@ -75,6 +83,10 @@ type linkAnnot struct {
 	rect Rect
 	uri  string
 	dest string
+	// elem is the Link element of a tagged link, contents its /Contents
+	// (structure.go).
+	elem     *StructElem
+	contents string
 }
 
 // namedDest is a named jump target anchored at (x, y) in the page's user space.

@@ -177,9 +177,24 @@ TrueType font, a synthesised CFF2 font and a bundled OFL OpenType/CFF font.
   AES-256 with permissions and both passwords.
 - **Forms are not written here** — `go-pdfkit/forms` reads, fills and flattens
   an AcroForm, and `go-pdfkit/xfa` reads the other kind.
-- **PDF/A and tagged PDF are not written here**, and PDF/A is not implemented
-  anywhere in the organisation. A structure tree is only ever preserved:
-  `go-pdfkit/ops` rebuilds one it is given around the pages that survive.
+- **Tagged PDF and PDF/UA** (after v0.17.0): `Document.Structure()` returns
+  the root of the logical structure (ISO 32000-1, 14.7), and `Add` builds the
+  tree in reading order with the standard types (`StructSect`, `StructH1`,
+  `StructP`, `StructL`/`StructLI`/`StructLbl`/`StructLBody`, `StructTable`,
+  `StructFigure` and `StructFormula` with `Alt`, `StructCode`, `StructLink`…).
+  `Page.BeginTag(e)` … `EndMarkedContent()` ties what is drawn to an element
+  (a marked-content sequence with an MCID, mapped back through the parent
+  tree). `Page.BeginArtifact` marks backgrounds, page numbers and ornaments,
+  and `Page.AddTaggedLink` puts a link annotation under its Link element with
+  its `/Contents`. Notes get an `Annot` element of their own, and elements
+  with no content are left out. `Options.Lang`, `DisplayDocTitle` and `PDFUA`
+  (the XMP metadata with `dc:title` and `pdfuaid:part`) complete what PDF/UA-1
+  asks of the file; a small tagged document passes veraPDF's PDF/UA-1
+  profile. Tagging every drawing is the caller's part. An untagged document
+  is written as before.
+- **PDF/A is not written here**, and is not implemented anywhere in the
+  organisation. `go-pdfkit/ops` preserves a structure tree it is given around
+  the pages that survive.
 
 ## License
 

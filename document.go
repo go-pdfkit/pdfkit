@@ -55,6 +55,23 @@ type Options struct {
 	// pair. When nil the ID is derived deterministically from the document
 	// body, so identical documents get identical IDs without a clock.
 	ID [2][]byte
+
+	// Lang is the document's natural language, a language tag such as "en"
+	// or "fr-CA" (the catalog's /Lang, ISO 32000-1:2008, 14.9.2). A screen
+	// reader picks its voice from it; PDF/UA requires it.
+	Lang string
+
+	// DisplayDocTitle asks viewers to show Title in the window's title bar
+	// rather than the file name (/ViewerPreferences, 12.2). PDF/UA requires
+	// it.
+	DisplayDocTitle bool
+
+	// PDFUA declares the document a PDF/UA-1 file (ISO 14289-1): it writes
+	// the XMP metadata stream with the title and the pdfuaid:part
+	// identification. The document must be tagged (Document.Structure),
+	// with Title, Lang and DisplayDocTitle set, for the claim to hold; the
+	// rest, every drawing tagged or an artifact, is the caller's to keep.
+	PDFUA bool
 }
 
 // DefaultProducer is the /Producer value used when Options.Producer is empty.
@@ -77,6 +94,10 @@ type Document struct {
 	// once. It is consulted, never iterated: the emitted order and the /Im<i>
 	// numbering come from the images slice, so output stays deterministic.
 	imgCache map[string]*imageXObject
+
+	// structRoot is the root of the logical structure, nil for an untagged
+	// document (structure.go).
+	structRoot *StructElem
 }
 
 // outlineItem is one entry in the document outline (the viewer's bookmark tree):
@@ -139,6 +160,7 @@ func New(opts Options) *Document {
 func (d *Document) AddPage(size PageSize) *Page {
 	p := &Page{
 		doc:        d,
+		index:      len(d.pages),
 		width:      size.Width,
 		height:     size.Height,
 		usedFonts:  map[*Font]bool{},
@@ -237,6 +259,16 @@ func (d *Document) Write(w io.Writer) error {
 		imageRefs[x] = d.buildImage(bd, x)
 	}
 
+	// In a tagged document every annotation is in the structure: a tagged
+	// link under its Link element, a note under an Annot element of its own
+	// (PDF/UA). Each has a parent-tree key after the pages' (structure.go).
+	var sw *structWriter
+	nextKey := len(d.pages)
+	if d.tagged() {
+		sw = &structWriter{bd: bd, pageRefs: pageRefs,
+			annotRefs: make([][]objRef, len(d.pages)), annotKeys: make([][]int, len(d.pages))}
+	}
+
 	var dests []destEntry
 	for i, p := range d.pages {
 		content := p.finishContent()
@@ -250,8 +282,37 @@ func (d *Document) Write(w io.Writer) error {
 		node.set("MediaBox", pdfArray{pdfReal(0), pdfReal(0), pdfReal(p.width), pdfReal(p.height)})
 		node.set("Contents", cstream)
 		node.set("Resources", p.resources(fontRefs, imageRefs))
-		if annots := append(d.buildLinkAnnots(bd, p.links), d.buildTextAnnots(bd, p.notes)...); len(annots) > 0 {
+		var keys []int
+		key := func(int) int { return -1 }
+		if sw != nil {
+			keys = make([]int, len(p.links)+len(p.notes))
+			for j := range keys {
+				keys[j] = -1
+				if j >= len(p.links) || p.links[j].elem != nil {
+					keys[j] = nextKey
+					nextKey++
+				}
+			}
+			key = func(j int) int { return keys[j] }
+		}
+		annots := append(d.buildLinkAnnots(bd, p.links, key),
+			d.buildTextAnnots(bd, p.notes, func(j int) int { return key(len(p.links) + j) })...)
+		if len(annots) > 0 {
 			node.set("Annots", annots)
+			if sw != nil {
+				// the annotations in the order of the structure (PDF/UA)
+				node.set("Tabs", pdfName("S"))
+			}
+		}
+		if sw != nil {
+			refs := make([]objRef, len(annots))
+			for j, a := range annots {
+				refs[j] = a.(objRef)
+			}
+			sw.annotRefs[i], sw.annotKeys[i] = refs, keys
+			if len(p.mcids) > 0 {
+				node.set("StructParents", pdfInt(i))
+			}
 		}
 		bd.put(pageRefs[i], node)
 		for _, dt := range p.dests {
@@ -278,6 +339,28 @@ func (d *Document) Write(w io.Writer) error {
 	if outlines := d.buildOutlines(bd, pageRefs); outlines != 0 {
 		catDict.set("Outlines", outlines)
 	}
+	if sw != nil {
+		catDict.set("StructTreeRoot", d.buildStructTree(sw))
+		mark := newDict()
+		mark.set("Marked", pdfBool(true))
+		catDict.set("MarkInfo", mark)
+	}
+	if d.opts.Lang != "" {
+		catDict.set("Lang", pdfTextString(d.opts.Lang))
+	}
+	if d.opts.DisplayDocTitle {
+		vp := newDict()
+		vp.set("DisplayDocTitle", pdfBool(true))
+		catDict.set("ViewerPreferences", vp)
+	}
+	if d.opts.PDFUA {
+		md := newDict()
+		md.set("Type", pdfName("Metadata"))
+		md.set("Subtype", pdfName("XML"))
+		// left uncompressed, as XMP readers that scan files for packets
+		// expect
+		catDict.set("Metadata", bd.add(&pdfStream{dict: md, data: d.xmpMetadata()}))
+	}
 	bd.put(catalog, catDict)
 
 	var info objRef
@@ -296,7 +379,10 @@ func (d *Document) Write(w io.Writer) error {
 // buildLinkAnnots emits one /Link annotation object per link and returns the
 // /Annots array referencing them. A link is a borderless rectangle whose /A is a
 // URI action; /Rect is [llx lly urx ury] in the page's default user space.
-func (d *Document) buildLinkAnnots(bd *builder, links []linkAnnot) pdfArray {
+//
+// key(i) is link i's parent-tree key in a tagged document, -1 for none
+// (structure.go).
+func (d *Document) buildLinkAnnots(bd *builder, links []linkAnnot, key func(int) int) pdfArray {
 	annots := make(pdfArray, len(links))
 	for i, ln := range links {
 		action := newDict()
@@ -319,6 +405,12 @@ func (d *Document) buildLinkAnnots(bd *builder, links []linkAnnot) pdfArray {
 		})
 		a.set("Border", pdfArray{pdfInt(0), pdfInt(0), pdfInt(0)})
 		a.set("A", action)
+		if ln.contents != "" {
+			a.set("Contents", pdfTextString(ln.contents))
+		}
+		if k := key(i); k >= 0 {
+			a.set("StructParent", pdfInt(k))
+		}
 		annots[i] = bd.add(a)
 	}
 	return annots
@@ -474,9 +566,9 @@ func outlineFlags(o OutlineOptions) int {
 
 // buildTextAnnots emits one /Text annotation object per note and returns their
 // references, for the page's /Annots array (PDF 32000-1 12.5.6.4).
-func (d *Document) buildTextAnnots(bd *builder, notes []TextAnnotation) pdfArray {
+func (d *Document) buildTextAnnots(bd *builder, notes []TextAnnotation, key func(int) int) pdfArray {
 	var annots pdfArray
-	for _, n := range notes {
+	for i, n := range notes {
 		a := newDict()
 		a.set("Type", pdfName("Annot"))
 		a.set("Subtype", pdfName("Text"))
@@ -501,6 +593,9 @@ func (d *Document) buildTextAnnots(bd *builder, notes []TextAnnotation) pdfArray
 		}
 		if n.Opacity > 0 && n.Opacity <= 1 {
 			a.set("CA", pdfReal(n.Opacity))
+		}
+		if k := key(i); k >= 0 {
+			a.set("StructParent", pdfInt(k))
 		}
 		annots = append(annots, bd.add(a))
 	}

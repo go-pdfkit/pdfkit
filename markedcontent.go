@@ -20,11 +20,16 @@ func (p *Page) BeginActualText(replacement string) {
 	p.marked++
 }
 
-// EndMarkedContent ends the innermost span BeginActualText started. Without
-// one open it writes nothing, so a stray call cannot unbalance the stream.
+// EndMarkedContent ends the innermost marked-content sequence: a span
+// BeginActualText started, a tagged sequence (BeginTag) or an artifact
+// (BeginArtifact). Without one open it writes nothing, so a stray call
+// cannot unbalance the stream.
 func (p *Page) EndMarkedContent() {
 	if p.marked == 0 {
 		return
+	}
+	if p.tagOpen && p.marked == p.tagDepth {
+		p.tagOpen = false
 	}
 	p.marked--
 	p.op("", "EMC")
