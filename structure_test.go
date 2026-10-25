@@ -404,10 +404,13 @@ func TestStructureEdges(t *testing.T) {
 			t.Errorf("no %q", s)
 		}
 	}
-	// a tagged element, a title, actual text, on several pages through MCRs
+	// a tagged element, a title, actual text, attributes of two owners
+	// (and one of a type with no PDF form), on several pages through MCRs
 	d = New(Options{})
 	e := d.Structure().Add(StructSpan)
 	e.Title, e.ActualText = "T", "A"
+	e.Attributes = []Attribute{{"Table", "Scope", Name("Column")}, {"Table", "RowSpan", 2},
+		{"Layout", "Width", 1.5}, {"Table", "Summary", "s"}, {"Layout", "Bad", struct{}{}}}
 	for range 3 {
 		pg := d.AddPage(A4)
 		pg.BeginTag(e)
@@ -418,5 +421,15 @@ func TestStructureEdges(t *testing.T) {
 	w = walkStructure(t, b)
 	if len(w.mcids) != 3 || !bytes.Contains(b, []byte("/T (T)")) || !bytes.Contains(b, []byte("/ActualText (A)")) {
 		t.Errorf("mcids %v", w.mcids)
+	}
+	if !bytes.Contains(b, []byte("/A [<</O /Table /Scope /Column /RowSpan 2 /Summary (s)>> <</O /Layout /Width 1.5>>]")) {
+		t.Error("attributes")
+	}
+	// one owner: a single attribute object
+	one := &StructElem{Attributes: []Attribute{{"Table", "Scope", Name("Row")}}}
+	var buf bytes.Buffer
+	one.attributes().encodePDF(&buf)
+	if buf.String() != "<</O /Table /Scope /Row>>" {
+		t.Errorf("one owner: %s", buf.String())
 	}
 }

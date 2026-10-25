@@ -76,8 +76,66 @@ type StructElem struct {
 	// (14.9.4); Lang its natural language, a language tag such as "fr"
 	// (14.9.2); Title a human-readable title (/T).
 	Alt, ActualText, Lang, Title string
-	kids                         []structKid
-	ref                          objRef // set while writing
+	// Attributes are the element's standard structure attributes
+	// (14.8.5): a table header's Scope, a cell's RowSpan, a list's
+	// ListNumbering… written as one attribute object per owner.
+	Attributes []Attribute
+	kids       []structKid
+	ref        objRef // set while writing
+}
+
+// Attribute is one standard structure attribute (ISO 32000-1:2008, 14.8.5):
+// its owner ("Table", "List", "Layout", "PrintField"…), its key, and its
+// value: a Name, an int, a float64 or a string (a text string).
+type Attribute struct {
+	Owner, Key string
+	Value      any
+}
+
+// Name is an attribute value written as a PDF name, such as Column for a
+// table header's Scope.
+type Name string
+
+// attributes is e's /A: one attribute object per owner, in the order the
+// owners first appear; nil without attributes. A value of an unknown type is
+// left out.
+func (e *StructElem) attributes() pdfValue {
+	var dicts []*pdfDict
+	owners := map[string]*pdfDict{}
+	for _, a := range e.Attributes {
+		var v pdfValue
+		switch x := a.Value.(type) {
+		case Name:
+			v = pdfName(x)
+		case int:
+			v = pdfInt(x)
+		case float64:
+			v = pdfReal(x)
+		case string:
+			v = pdfTextString(x)
+		default:
+			continue
+		}
+		d := owners[a.Owner]
+		if d == nil {
+			d = newDict()
+			d.set("O", pdfName(a.Owner))
+			owners[a.Owner] = d
+			dicts = append(dicts, d)
+		}
+		d.set(a.Key, v)
+	}
+	switch len(dicts) {
+	case 0:
+		return nil
+	case 1:
+		return dicts[0]
+	}
+	arr := make(pdfArray, len(dicts))
+	for i, d := range dicts {
+		arr[i] = d
+	}
+	return arr
 }
 
 // structKid is one child of an element: another element, a marked-content
@@ -298,6 +356,9 @@ func (w *structWriter) fillStruct(e *StructElem, parent objRef) {
 	}
 	if e.ActualText != "" {
 		d.set("ActualText", pdfTextString(e.ActualText))
+	}
+	if a := e.attributes(); a != nil {
+		d.set("A", a)
 	}
 	w.bd.put(e.ref, d)
 	for _, k := range e.kids {
