@@ -187,7 +187,9 @@ TrueType font, a synthesised CFF2 font and a bundled OFL OpenType/CFF font.
   tree). `Page.BeginArtifact` marks backgrounds, page numbers and ornaments,
   and `Page.AddTaggedLink` puts a link annotation under its Link element with
   its `/Contents`. Notes get an `Annot` element of their own, and elements
-  with no content are left out. `Options.Lang`, `DisplayDocTitle` and `PDFUA`
+  with no content are left out. After v0.18.0, `StructElem.Attributes` carries
+  the standard structure attributes (§14.8.5): a `TH`'s `Scope`, which
+  PDF/UA asks for, a cell's `RowSpan`… `Options.Lang`, `DisplayDocTitle` and `PDFUA`
   (the XMP metadata with `dc:title` and `pdfuaid:part`) complete what PDF/UA-1
   asks of the file; a small tagged document passes veraPDF's PDF/UA-1
   profile. Tagging every drawing is the caller's part. An untagged document
