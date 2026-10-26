@@ -69,16 +69,12 @@
 //
 // # Widget bridge
 //
-// AddWidget and AddWidgetVector "print" a github.com/go-widgets/toolkit widget
-// tree onto a page. AddWidget lays the tree out at the target size, renders it
-// through a go-widgets/painter PixelPainter and places the result as an image
-// XObject — any UI, exactly as it draws on screen. AddWidgetVector runs the same
-// tree through a painter that emits PDF vector operators instead of pixels, so
-// fills and strokes stay crisp and text drawn through the toolkit's built-in
-// font becomes real, selectable PDF text (it needs a WidgetOptions.Font). A
-// widget label set in a TrueType/OpenType toolkit font (a painter.Face) embeds
-// that face's own bytes and is emitted as selectable Type0 text too, so vector
-// output is not limited to the toolkit's built-in bitmap font.
+// The subpackage github.com/go-pdfkit/pdfkit/widget "prints" a
+// github.com/go-widgets/toolkit widget tree onto a page: widget.Add as an
+// image, widget.AddVector as vector operators with selectable text. It is a
+// separate package so that importing pdfkit does not link the toolkit; a test
+// fails if the root package's import graph ever reaches it again. Until
+// v0.20.0 these were Page.AddWidget and Page.AddWidgetVector.
 //
 // # Font embedding
 //
