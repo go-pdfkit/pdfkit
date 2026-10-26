@@ -45,12 +45,17 @@ Go-idiomatic rather than a gem port.
   document and every placement, on any page, references the one XObject.
 - **Pages** — standard sizes (A3/A4/A5/Letter/Legal/Tabloid), portrait/landscape,
   custom sizes; `Pt`/`Mm`/`In` unit helpers.
-- **Widget bridge** — `Page.AddWidget` and `Page.AddWidgetVector` "print" a
+- **Widget bridge**, in the subpackage `pdfkit/widget`: `widget.Add` and
+  `widget.AddVector` "print" a
   [go-widgets/toolkit](https://github.com/go-widgets/toolkit) widget tree onto a
-  page. `AddWidget` rasterises the tree and places it as an image XObject —
-  pixel-identical to the screen. `AddWidgetVector` instead emits PDF vector
-  operators, so fills/strokes stay crisp and text stays selectable, including a
-  TrueType-font widget label's own face embedded as real Type0 text.
+  page.
+  - `Add` rasterises the tree and places it as an image XObject,
+    pixel-identical to the screen.
+  - `AddVector` instead emits PDF vector operators, so fills and strokes stay
+    crisp and text stays selectable. A TrueType-font widget label is embedded
+    in its own face as real Type0 text.
+  - Importing `pdfkit` alone does not link the toolkit: 196 packages instead of
+    403, and a test keeps it that way.
 - **Deterministic** — with the zero `Options`, output has no timestamps and a
   content-derived `/ID`, so identical inputs produce byte-identical PDFs.
 
@@ -112,7 +117,10 @@ from absolute positions so that the pen never drifts. go-webengine's
 ### Printing a widget tree
 
 ```go
-import "github.com/go-widgets/toolkit"
+import (
+	"github.com/go-pdfkit/pdfkit/widget"
+	"github.com/go-widgets/toolkit"
+)
 
 root := toolkit.NewContainer(toolkit.NewBoxLayout())
 btn := toolkit.NewButton("Submit", nil)
@@ -123,16 +131,29 @@ root.AddWidget(toolkit.NewLabel("Status: ready"))
 rect := pdfkit.Rect{X: pdfkit.Mm(20), Y: pdfkit.Mm(200), Width: pdfkit.Mm(80), Height: pdfkit.Mm(30)}
 
 // Raster: pixel-identical to the screen, not selectable.
-_ = p.AddWidget(root, rect, nil)
+_ = widget.Add(p, root, rect, nil)
 
 // Vector: crisp fills/strokes, selectable text (needs an embedded Font).
 rect.Y -= pdfkit.Mm(40)
-_ = p.AddWidgetVector(root, rect, &pdfkit.WidgetOptions{Font: font})
+_ = widget.AddVector(p, root, rect, &widget.Options{Font: font})
 ```
 
-`WidgetOptions.Scale` sets the layout-pixels-per-point ratio (default
-`DefaultWidgetScale`, 2); `WidgetOptions.Theme` selects the toolkit theme
-(default `toolkit.DefaultLight()`).
+`Options.Scale` sets the layout-pixels-per-point ratio (default
+`widget.DefaultScale`, 2). `Options.Theme` selects the toolkit theme (default
+`toolkit.DefaultLight()`).
+
+### Upgrading from v0.19 to v0.20
+
+The widget bridge moved out of the root package. Make these replacements:
+
+| v0.19 (`pdfkit`) | v0.20 (`pdfkit/widget`) |
+| --- | --- |
+| `p.AddWidget(root, rect, opts)` | `widget.Add(p, root, rect, opts)` |
+| `p.AddWidgetVector(root, rect, opts)` | `widget.AddVector(p, root, rect, opts)` |
+| `pdfkit.WidgetOptions` | `widget.Options` |
+| `pdfkit.DefaultWidgetScale` | `widget.DefaultScale` |
+
+Nothing else changed. A program that never used the bridge only gets smaller.
 
 ## Testing
 
