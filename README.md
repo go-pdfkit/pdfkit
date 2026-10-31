@@ -47,7 +47,8 @@ Go-idiomatic rather than a gem port.
   `Form`, drawn with every `Page` method (paths, colours, alpha, shadings,
   images, text, other forms) in its own form space. `Page.DrawForm(f, rect)`
   maps its box onto a rectangle, and `Page.PaintForm(f, a, b, c, d, e, f)`
-  places it under any matrix. A form painted any number of times, on any page,
+  places it under any matrix, and `Page.Document()` reaches the document from
+  a page to make forms. A form painted any number of times, on any page,
   is one stream: a logo, an emoji or a formula used thirty times costs thirty
   `Do` operators. Forms may paint forms made before or after them. A cycle is
   refused (`ErrFormCycle`). A form's content belongs to the tagged sequence it

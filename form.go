@@ -48,6 +48,10 @@ func (d *Document) NewForm(bbox Rect) *Form {
 	return f
 }
 
+// Document returns the document the page (or form) belongs to: what a
+// drawing layer holding only a page needs to make forms for it.
+func (p *Page) Document() *Document { return p.doc }
+
 // BBox returns the form's bounding box in form space.
 func (f *Form) BBox() Rect { return f.bbox }
 

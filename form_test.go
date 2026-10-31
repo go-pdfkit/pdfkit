@@ -146,6 +146,9 @@ func TestDrawFormMatrix(t *testing.T) {
 		t.Errorf("BBox = %v", got)
 	}
 	p := doc.AddPage(A4)
+	if p.Document() != doc || f.Document() != doc {
+		t.Error("Document does not return the page's document")
+	}
 	if err := p.DrawForm(f, Rect{Width: 200, Height: 100}); err != nil {
 		t.Fatal(err)
 	}
