@@ -50,8 +50,8 @@ Go-idiomatic rather than a gem port.
   places it under any matrix. A form painted any number of times, on any page,
   is one stream: a logo, an emoji or a formula used thirty times costs thirty
   `Do` operators. Forms may paint forms made before or after them. A cycle is
-  refused (`ErrFormCycle`). A form's content takes the structure of the tagged
-  sequence it is painted in, so `BeginTag` and tagged links inside a form write
+  refused (`ErrFormCycle`). A form's content belongs to the tagged sequence it
+  is painted in (§14.7.4.2), so `BeginTag` and tagged links inside a form write
   nothing.
 - **Pages** — standard sizes (A3/A4/A5/Letter/Legal/Tabloid), portrait/landscape,
   custom sizes; `Pt`/`Mm`/`In` unit helpers.

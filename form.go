@@ -20,7 +20,9 @@ import (
 // in its own coordinate system, form space, whose visible part is the
 // bounding box given to NewForm. What belongs to a page and not to a drawing
 // is not available inside a form: BeginTag writes nothing (a form's content
-// takes the structure of the sequence its Do is painted in, 14.7.4.3), and
+// is part of the tagged sequence its Do is painted in and shall not contain
+// sequences of its own, 14.7.4.2, the one way a form painted many times can
+// be in the structure), and
 // links, notes and named destinations added to it are never written.
 type Form struct {
 	*Page
