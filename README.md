@@ -43,6 +43,17 @@ Go-idiomatic rather than a gem port.
   **Pixel-identical bitmaps are shared**: each image is content-addressed by its
   *uncompressed* samples, so a repeat is embedded — and compressed — once per
   document and every placement, on any page, references the one XObject.
+- **Form XObjects** (ISO 32000-1 §8.10) — `Document.NewForm(bbox)` returns a
+  `Form`, drawn with every `Page` method (paths, colours, alpha, shadings,
+  images, text, other forms) in its own form space. `Page.DrawForm(f, rect)`
+  maps its box onto a rectangle, and `Page.PaintForm(f, a, b, c, d, e, f)`
+  places it under any matrix, and `Page.Document()` reaches the document from
+  a page to make forms. A form painted any number of times, on any page,
+  is one stream: a logo, an emoji or a formula used thirty times costs thirty
+  `Do` operators. Forms may paint forms made before or after them. A cycle is
+  refused (`ErrFormCycle`). A form's content belongs to the tagged sequence it
+  is painted in (§14.7.4.2), so `BeginTag` and tagged links inside a form write
+  nothing.
 - **Pages** — standard sizes (A3/A4/A5/Letter/Legal/Tabloid), portrait/landscape,
   custom sizes; `Pt`/`Mm`/`In` unit helpers.
 - **Widget bridge**, in the subpackage `pdfkit/widget`: `widget.Add` and

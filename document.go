@@ -87,6 +87,7 @@ type Document struct {
 	fontIx  map[*Font]int      // font -> registration index
 	use     map[*Font]*fontUse // per-document glyph usage, keyed by font
 	images  []*imageXObject    // registration order; index drives the /Im<i> name
+	forms   []*Form            // creation order; index drives the /Fm<i> name
 	outline []outlineItem      // document outline (bookmarks), in document order
 
 	// imgCache maps an image's content address (see imageKey) to the XObject
@@ -258,6 +259,7 @@ func (d *Document) Write(w io.Writer) error {
 	for _, x := range d.images {
 		imageRefs[x] = d.buildImage(bd, x)
 	}
+	formRefs := d.buildForms(bd, fontRefs, imageRefs)
 
 	// In a tagged document every annotation is in the structure: a tagged
 	// link under its Link element, a note under an Annot element of its own
@@ -281,7 +283,7 @@ func (d *Document) Write(w io.Writer) error {
 		node.set("Parent", pagesRef)
 		node.set("MediaBox", pdfArray{pdfReal(0), pdfReal(0), pdfReal(p.width), pdfReal(p.height)})
 		node.set("Contents", cstream)
-		node.set("Resources", p.resources(fontRefs, imageRefs))
+		node.set("Resources", p.resources(fontRefs, imageRefs, formRefs))
 		var keys []int
 		key := func(int) int { return -1 }
 		if sw != nil {

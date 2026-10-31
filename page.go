@@ -32,6 +32,10 @@ type Page struct {
 
 	usedFonts  map[*Font]bool
 	usedImages map[*imageXObject]bool
+	usedForms  map[*Form]bool
+
+	// form is the form this content stream is, nil for a page (form.go).
+	form *Form
 
 	curFont   *Font
 	curName   string
@@ -365,7 +369,7 @@ func (p *Page) finishContent() []byte {
 
 // resources builds the page's /Resources dictionary from the fonts and images
 // it used and any transparency states it declared.
-func (p *Page) resources(fontRefs map[*Font]objRef, imageRefs map[*imageXObject]objRef) *pdfDict {
+func (p *Page) resources(fontRefs map[*Font]objRef, imageRefs map[*imageXObject]objRef, formRefs map[*Form]objRef) *pdfDict {
 	res := newDict()
 	res.set("ProcSet", pdfArray{pdfName("PDF"), pdfName("Text"), pdfName("ImageB"), pdfName("ImageC"), pdfName("ImageI")})
 
@@ -376,11 +380,16 @@ func (p *Page) resources(fontRefs map[*Font]objRef, imageRefs map[*imageXObject]
 		}
 		res.set("Font", sortDict(fonts))
 	}
-	if len(p.usedImages) > 0 {
+	if len(p.usedImages) > 0 || len(p.usedForms) > 0 {
 		xobj := newDict()
 		for _, x := range p.doc.images {
 			if p.usedImages[x] {
 				xobj.set(x.name, imageRefs[x])
+			}
+		}
+		for _, f := range p.doc.forms {
+			if p.usedForms[f] {
+				xobj.set(f.name, formRefs[f])
 			}
 		}
 		res.set("XObject", xobj)
