@@ -175,7 +175,7 @@ func (e *StructElem) Parent() *StructElem { return e.parent }
 // Sequences may not nest (14.7.4.2 forbids one structure content item in
 // another): a BeginTag while one is open closes the open one first.
 func (p *Page) BeginTag(e *StructElem) {
-	if e == nil || e.doc != p.doc {
+	if e == nil || e.doc != p.doc || p.form != nil {
 		return
 	}
 	p.closeTag()
@@ -257,6 +257,9 @@ func (p *Page) AddTaggedNamedLink(e *StructElem, rect Rect, dest, contents strin
 }
 
 func (p *Page) addTaggedLink(e *StructElem, l linkAnnot) {
+	if p.form != nil {
+		return // a form has no annotations, nor a place in the structure
+	}
 	if e != nil && e.doc == p.doc {
 		l.elem = e
 		e.kids = append(e.kids, structKid{page: p.index, annot: len(p.links)})

@@ -104,7 +104,7 @@ func TestAlphaExtGState(t *testing.T) {
 	if !strings.Contains(c, "/GS0 gs") || !strings.Contains(c, "/GS1 gs") {
 		t.Errorf("missing gs operators\n%s", c)
 	}
-	res := p.resources(nil, nil)
+	res := p.resources(nil, nil, nil)
 	if enc(res) == "" || !strings.Contains(enc(res), "ExtGState") {
 		t.Error("resources missing ExtGState")
 	}
