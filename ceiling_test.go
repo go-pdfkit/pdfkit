@@ -220,6 +220,15 @@ func runBombChild(t *testing.T, mode string) ([]byte, error) {
 	cmd.Env = append(os.Environ(), bombEnv+"="+mode, "GOMEMLIMIT=256MiB")
 	out, err := cmd.CombinedOutput()
 	if bytes.Contains(out, []byte(skipMark)) {
+		// ⛔⛔ A skip and a pass are the same colour, and CI does not run with
+		// -v, so a limit that silently stopped working would look exactly like
+		// this test doing its job. On Linux there is no excuse — /proc and
+		// RLIMIT_AS are both there — so a skip there is a FAILURE, and the
+		// only platforms that may skip are the ones named in the message.
+		if runtime.GOOS == "linux" {
+			t.Fatalf("the child could not take an address-space limit on linux, where it "+
+				"should always be able to; this test has stopped testing anything:\n%s", out)
+		}
 		t.Skipf("%s does not enforce an address-space limit, so the bomb is left to the "+
 			"heap measurement in TestAPNGIsRefusedFromItsHeaderBeforeItsPixelsAreAllocated",
 			runtime.GOOS)
