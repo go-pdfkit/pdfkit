@@ -169,9 +169,10 @@ const bombEnv = "PDFKIT_BOMB_CHILD"
 
 func TestABombIsRefusedByAProcessTooSmallToHoldIt(t *testing.T) {
 	// ⛔ The heap test above reads two numbers and believes them. This one
-	// cannot be argued with: the child is given an address space far smaller
-	// than the bomb's 1.5 GiB, so an unbounded decode does not merely allocate
-	// too much, it DIES. A refusal and a corpse are easy to tell apart.
+	// cannot be argued with: the child may reserve 512 MiB more address space
+	// than it already holds, a third of what the bomb needs, so an unbounded
+	// decode does not merely allocate too much, it DIES. A refusal and a
+	// corpse are easy to tell apart.
 	//
 	// It also keeps the bomb off this machine's memory — the limit is the
 	// child's, not the host's, which matters on a box running two dozen
@@ -188,7 +189,7 @@ func TestABombIsRefusedByAProcessTooSmallToHoldIt(t *testing.T) {
 	}
 	out, err := runBombChild(t, "guarded")
 	if err != nil {
-		t.Fatalf("the child did not survive the bomb under a 1 GiB address space, "+
+		t.Fatalf("the child did not survive the bomb with 512 MiB of headroom, "+
 			"which is what an unbounded decode looks like: %v\n%s", err, out)
 	}
 	if !bytes.Contains(out, []byte("refused:")) {
@@ -196,8 +197,8 @@ func TestABombIsRefusedByAProcessTooSmallToHoldIt(t *testing.T) {
 	}
 	bare, err := runBombChild(t, "bare")
 	if err == nil {
-		t.Errorf("decoding the same bomb with NO ceiling also survived a 1 GiB address "+
-			"space, so the limit is not being applied and the run above proved "+
+		t.Errorf("decoding the same bomb with NO ceiling also survived 512 MiB of "+
+			"headroom, so the limit is not being applied and the run above proved "+
 			"nothing:\n%s", bare)
 	}
 }
@@ -224,10 +225,15 @@ const skipMark = "no address-space limit here:"
 // down from the parent: os/exec has no rlimit of its own, and the child is our
 // own code, so it can refuse itself the room before it is asked for any.
 func drawTheBomb(t *testing.T, mode string) {
-	if err := capAddressSpace(1 << 30); err != nil {
+	// The fixture is built BEFORE the limit comes down. It is one pixel, but
+	// encoding it asks the runtime for room, and a test that dies making its
+	// own fixture fails in the same words as the defect it is looking for.
+	bomb := claimingPNG(t, 20000, 20000)
+	// 512 MiB of headroom: ample for a 1x1 PNG and for whatever the runtime
+	// wants next, and a third of what this bomb needs.
+	if err := capAddressSpace(512 << 20); err != nil {
 		t.Skipf("%s %v", skipMark, err)
 	}
-	bomb := claimingPNG(t, 20000, 20000)
 	if mode == "bare" {
 		img, err := png.Decode(bytes.NewReader(bomb))
 		t.Fatalf("the control survived: png.Decode returned %v, %v", img != nil, err)
