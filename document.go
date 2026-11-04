@@ -72,10 +72,40 @@ type Options struct {
 	// with Title, Lang and DisplayDocTitle set, for the claim to hold; the
 	// rest, every drawing tagged or an artifact, is the caller's to keep.
 	PDFUA bool
+
+	// MaxPixels is the largest picture [Page.DrawPNG] will decode, counted in
+	// pixels. Zero means [DefaultMaxPixels].
+	//
+	// ⛔ A PNG's HEADER decides the allocation, and the header is a claim the
+	// file makes about itself. Seventy-five bytes with a valid IHDR saying
+	// 20000x20000 cost 1.5 GiB before anything looks at the pixel data. A
+	// program embedding its own logo never meets this; a program embedding a
+	// picture it did not produce meets it on the first hostile upload, and
+	// should set this to what its own documents need rather than inherit the
+	// default.
+	MaxPixels int
 }
 
 // DefaultProducer is the /Producer value used when Options.Producer is empty.
 const DefaultProducer = "go-pdfkit/pdfkit"
+
+// DefaultMaxPixels is the largest picture [Page.DrawPNG] decodes when
+// [Options.MaxPixels] is zero.
+//
+// Said in bytes, because a count of pixels does not tell anybody what it
+// permits: image/png hands back four bytes a pixel, so forty million pixels is
+// a hundred and sixty MILLION BYTES — 152 MiB — before pdfkit has copied a
+// single sample. That is the ceiling go-pdfkit/render and go-gfx/gfx's svg
+// package already use, and it is a little over A4 at 600 dots to the inch.
+const DefaultMaxPixels = 40_000_000
+
+// maxPixels is the ceiling in force for this document.
+func (d *Document) maxPixels() int {
+	if d.opts.MaxPixels <= 0 {
+		return DefaultMaxPixels
+	}
+	return d.opts.MaxPixels
+}
 
 // Document is a PDF document under construction. Build it with New, append
 // pages with AddPage, then serialise with Write. It is not safe for concurrent

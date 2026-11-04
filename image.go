@@ -151,12 +151,37 @@ func unpremultiply(c []byte, a byte) {
 }
 
 // DrawPNG decodes PNG bytes and embeds the image into r. It returns an error if
-// the data is not a valid PNG.
+// the data is not a valid PNG, or if it declares more than
+// [Options.MaxPixels] pixels.
 func (p *Page) DrawPNG(data []byte, r Rect) error {
+	// ⛔ THE HEADER FIRST. png.Decode allocates the whole pixel buffer from
+	// IHDR before it reads a byte of image data, so a ceiling applied to what
+	// it returns is not a ceiling, it is a post-mortem: a seventy-five byte
+	// file claiming 20000x20000 costs 1.5 GiB on the way to being rejected.
+	// The spec asks for exactly this reading order — "PNG decoders should
+	// detect errors as early as possible" (W3C PNG 3rd ed. §4.10).
+	//
+	// Multiplied in int64 because the two factors are not ours: IHDR's width
+	// and height are four-byte unsigned integers over 0..2^31-1 (§11.2.1), and
+	// two of those multiplied in int on a 32-bit build is how a ceiling is
+	// passed by overflowing past it.
+	cfg, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("pdfkit: decode png header: %w", err)
+	}
+	if px := int64(cfg.Width) * int64(cfg.Height); px > int64(p.doc.maxPixels()) {
+		return fmt.Errorf("pdfkit: a PNG of %dx%d is %d pixels, past the %d allowed",
+			cfg.Width, cfg.Height, px, p.doc.maxPixels())
+	}
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("pdfkit: decode png: %w", err)
 	}
+	// go-pdfkit/convert#4 measures what came back as well, because in general
+	// a header is a claim. Not repeated here: both calls above read their
+	// dimensions from the same IHDR, so a second comparison could not differ,
+	// and an unreachable branch is a comfort rather than a check.
+	// TestTheDecodedSizeIsTheSizeTheHeaderDeclared holds that assumption.
 	p.DrawImage(img, r)
 	return nil
 }
