@@ -47,6 +47,8 @@ Go-idiomatic rather than a gem port.
   **Pixel-identical bitmaps are shared**: each image is content-addressed by its
   *uncompressed* samples, so a repeat is embedded — and compressed — once per
   document and every placement, on any page, references the one XObject.
+  `DrawPNG` reads IHDR before it decodes and refuses a picture declaring more
+  than `Options.MaxPixels` — see below.
 - **Form XObjects** (ISO 32000-1 §8.10) — `Document.NewForm(bbox)` returns a
   `Form`, drawn with every `Page` method (paths, colours, alpha, shadings,
   images, text, other forms) in its own form space. `Page.DrawForm(f, rect)`
@@ -73,6 +75,48 @@ Go-idiomatic rather than a gem port.
     403, and a test keeps it that way.
 - **Deterministic** — with the zero `Options`, output has no timestamps and a
   content-derived `/ID`, so identical inputs produce byte-identical PDFs.
+
+## What a PNG may ask for
+
+A PNG's **header** decides the allocation. IHDR's width and height are
+four-byte unsigned integers (W3C PNG 3rd ed. §11.2.1), and nothing in the file
+has to back them up: **seventy-five bytes** claiming 20000×20000 cost
+**1.5 GiB** before `png.Decode` looks at a single sample. Measured on the
+identical shape in `go-pdfkit/convert`, a 10000×10000 claim held 381.6 MiB.
+
+`DrawPNG` now reads IHDR with `png.DecodeConfig` and refuses past
+`Options.MaxPixels` — ⛔ *before* decoding, because a ceiling applied to what a
+decoder returns is not a ceiling, it is a post-mortem. The spec asks for the
+same reading order: "PNG decoders should detect errors as early as possible"
+(§4.10).
+
+`Options.MaxPixels` defaults to `DefaultMaxPixels` = `40 << 20`, **41 943 040
+pixels** — exactly 160 MiB at the four bytes a pixel `image/png` hands back,
+and a little over A4 at 600 dpi. A program embedding its own logo never meets
+it; a program embedding pictures it did not produce should set it to what its
+own documents need.
+
+⛔ That number is `go-pdfkit/render`'s `defaultMaxPixels` (`render.go:79`),
+read there rather than taken on trust. `go-gfx/gfx`'s `svg.DefaultMaxPixels` is
+`40_000_000` and its documentation calls that *"the same ceiling
+go-pdfkit/render uses"* — it is not, and the two differ by 1 943 040 pixels.
+That sentence had been travelling between repositories unchecked, this README
+included, until someone opened `render.go`
+([go-gfx/gfx#92](https://github.com/go-gfx/gfx/issues/92)).
+
+Two neighbours are deliberately **not** bounded, and the reasons are worth
+stating because "it has a limit" is otherwise read as "everything has a limit":
+
+- **`DrawJPEG`** decodes nothing. The bytes are embedded as a DCTDecode stream
+  and the geometry is read from the SOF marker, so a hundred-megapixel scan
+  costs pdfkit its own length and no more. Its dimensions are not a lie a
+  consumer will discover later, either: the consumer decodes the same JPEG.
+- **`DrawImage`** is handed an `image.Image` the caller has already allocated,
+  so the pixels exist before pdfkit sees them and refusing them saves nothing.
+  It copies them once more, a constant factor, not an amplification. (On a
+  32-bit build `w*h*3` would overflow `int` — but only for an image past 715
+  megapixels, which is 2.8 GB of pixel buffer the caller could not have
+  addressed to get here.)
 
 ## Install
 
