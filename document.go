@@ -93,11 +93,17 @@ const DefaultProducer = "go-pdfkit/pdfkit"
 // [Options.MaxPixels] is zero.
 //
 // Said in bytes, because a count of pixels does not tell anybody what it
-// permits: image/png hands back four bytes a pixel, so forty million pixels is
-// a hundred and sixty MILLION BYTES — 152 MiB — before pdfkit has copied a
-// single sample. That is the ceiling go-pdfkit/render and go-gfx/gfx's svg
-// package already use, and it is a little over A4 at 600 dots to the inch.
-const DefaultMaxPixels = 40_000_000
+// permits: image/png hands back four bytes a pixel, so this is 160 MiB held
+// before pdfkit has copied a single sample. It is a little over A4 at 600 dots
+// to the inch.
+//
+// ⛔ The number is go-pdfkit/render's defaultMaxPixels (render.go:79), read
+// there rather than taken on trust. go-gfx/gfx's svg.DefaultMaxPixels is
+// 40_000_000 and its documentation calls that "the same ceiling
+// go-pdfkit/render uses"; the two differ by 1 943 040 pixels, and that
+// sentence has been travelling between repositories unchecked. Filed as
+// go-gfx/gfx#92.
+const DefaultMaxPixels = 40 << 20
 
 // maxPixels is the ceiling in force for this document.
 func (d *Document) maxPixels() int {

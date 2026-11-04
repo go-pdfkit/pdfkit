@@ -152,12 +152,20 @@ func TestTheDefaultCeilingIsTheNumberTheDocumentationQuotes(t *testing.T) {
 	// Written out rather than derived from the constant: deriving it would
 	// make the judge move with the subject, which is how a ceiling test passes
 	// a mutation that raised the ceiling.
-	if DefaultMaxPixels != 40_000_000 {
+	if DefaultMaxPixels != 41_943_040 {
 		t.Errorf("DefaultMaxPixels is %d. If that was meant, update Options.MaxPixels's "+
 			"doc comment, DefaultMaxPixels's, and the README.", DefaultMaxPixels)
 	}
-	if got := fmt.Sprintf("%d MiB", 40_000_000*4/(1<<20)); got != "152 MiB" {
-		t.Errorf("forty million pixels at four bytes each is %s", got)
+	if got := fmt.Sprintf("%d MiB", 41_943_040*4/(1<<20)); got != "160 MiB" {
+		t.Errorf("the default at four bytes a pixel is %s", got)
+	}
+	// ⛔ And the sentence that sent me to check. go-gfx/gfx's svg package
+	// documents 40_000_000 as "the same ceiling go-pdfkit/render uses"; it is
+	// not, render.go:79 is 40 << 20. Written out so that aligning on a figure
+	// borrowed from a neighbour's prose cannot happen here quietly.
+	if DefaultMaxPixels == 40_000_000 {
+		t.Error("the default has drifted onto go-gfx/gfx's number, which is the one that " +
+			"claims a parity with go-pdfkit/render that it does not have")
 	}
 }
 

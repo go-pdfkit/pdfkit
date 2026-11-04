@@ -86,12 +86,19 @@ decoder returns is not a ceiling, it is a post-mortem. The spec asks for the
 same reading order: "PNG decoders should detect errors as early as possible"
 (§4.10).
 
-`Options.MaxPixels` defaults to `DefaultMaxPixels`, **forty million pixels** —
-a hundred and sixty million bytes, 152 MiB, at the four bytes a pixel
-`image/png` hands back. That is the ceiling `go-pdfkit/render` and
-`go-gfx/gfx`'s `svg` package already use, and a little over A4 at 600 dpi. A
-program embedding its own logo never meets it; a program embedding pictures it
-did not produce should set it to what its own documents need.
+`Options.MaxPixels` defaults to `DefaultMaxPixels` = `40 << 20`, **41 943 040
+pixels** — exactly 160 MiB at the four bytes a pixel `image/png` hands back,
+and a little over A4 at 600 dpi. A program embedding its own logo never meets
+it; a program embedding pictures it did not produce should set it to what its
+own documents need.
+
+⛔ That number is `go-pdfkit/render`'s `defaultMaxPixels` (`render.go:79`),
+read there rather than taken on trust. `go-gfx/gfx`'s `svg.DefaultMaxPixels` is
+`40_000_000` and its documentation calls that *"the same ceiling
+go-pdfkit/render uses"* — it is not, and the two differ by 1 943 040 pixels.
+That sentence had been travelling between repositories unchecked, this README
+included, until someone opened `render.go`
+([go-gfx/gfx#92](https://github.com/go-gfx/gfx/issues/92)).
 
 Two neighbours are deliberately **not** bounded, and the reasons are worth
 stating because "it has a limit" is otherwise read as "everything has a limit":
