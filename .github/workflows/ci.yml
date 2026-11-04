@@ -63,6 +63,17 @@ jobs:
           fi
           echo "all statements covered (100.0%)"
 
+      # The seeds run above as ordinary subtests; this is the half that
+      # explores. A minute each found both of jpegInfo's divergences from
+      # image/jpeg within the first second, so a minute is not a formality.
+      # A new crasher is written under testdata/fuzz and fails this step.
+      - name: Fuzz the parsers
+        run: |
+          for target in FuzzJPEGInfo FuzzDrawImageSamples; do
+            echo "== $target =="
+            go test -run XXX -fuzz "$target" -fuzztime 60s .
+          done
+
       - name: Cross-compile (6 64-bit arches + wasm + darwin + windows)
         run: |
           for arch in amd64 arm64 riscv64 loong64 ppc64le s390x; do
@@ -72,3 +83,22 @@ jobs:
           GOOS=js      GOARCH=wasm  go build ./...
           GOOS=darwin  GOARCH=arm64 go build ./...
           GOOS=windows GOARCH=amd64 go build ./...
+
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.3"
+          check-latest: true
+          cache: true
+
+      # This lane never had one. pdfkit parses fonts and image headers out of
+      # files, so a known vulnerability in anything it links is a defect in it.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...

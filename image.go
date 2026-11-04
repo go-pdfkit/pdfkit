@@ -211,15 +211,47 @@ func jpegInfo(data []byte) (w, h, comps int, err error) {
 	if len(data) < 2 || data[0] != 0xFF || data[1] != 0xD8 {
 		return 0, 0, 0, fmt.Errorf("pdfkit: not a JPEG (bad SOI)")
 	}
+	// ⛔ The three skips below are not leniency for its own sake. DrawJPEG
+	// embeds these bytes UNTOUCHED, so whoever opens the PDF decodes the same
+	// file with a libjpeg-shaped decoder — and a writer that refuses what every
+	// reader of its own output accepts is the one in the wrong. The rules are
+	// taken from Go's image/jpeg (reader.go:542-581), which states where each
+	// comes from; both divergences below were found by FuzzJPEGInfo, within a
+	// second of each other, against image/jpeg as the oracle.
 	i := 2
-	for i+4 <= len(data) {
+	for i+1 < len(data) {
+		// Extraneous non-marker bytes between segments. libjpeg's next_marker
+		// raises JWRN_EXTRANEOUS_DATA and skips to the next X'FF'; image/jpeg
+		// does the same and so do we. (Found: a file image/jpeg read as
+		// 12336x12336 was refused here as "expected marker".)
 		if data[i] != 0xFF {
-			return 0, 0, 0, fmt.Errorf("pdfkit: corrupt JPEG (expected marker)")
+			i++
+			continue
 		}
 		marker := data[i+1]
-		if marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7) {
+		// X'FF00' is byte stuffing inside entropy-coded data, not a marker —
+		// a marker's second byte is "not equal to 0 or X'FF'" (T.81 §B.1.1.2).
+		if marker == 0x00 {
 			i += 2
 			continue
+		}
+		// "Any marker may optionally be preceded by any number of fill bytes,
+		// which are bytes assigned code X'FF'" (§B.1.1.2). (Found: a legal
+		// file image/jpeg read as 4x4 was refused here as a bad segment
+		// length, because the walk took the second X'FF' for the marker and
+		// then read the real marker as a length.)
+		if marker == 0xFF {
+			i++
+			continue
+		}
+		// The markers that stand alone and carry no segment: Table B.1's
+		// asterisked rows — SOI, EOI, the eight restarts, and TEM.
+		if marker == 0xD8 || marker == 0xD9 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7) {
+			i += 2
+			continue
+		}
+		if i+4 > len(data) {
+			return 0, 0, 0, fmt.Errorf("pdfkit: corrupt JPEG (truncated segment)")
 		}
 		seg := int(data[i+2])<<8 | int(data[i+3])
 		if seg < 2 || i+2+seg > len(data) {

@@ -39,7 +39,11 @@ Go-idiomatic rather than a gem port.
 - **Images** — JPEG embedded directly (DCTDecode); PNG and any `image.Image`
   rasterised as XObjects (FlateDecode) with an `/SMask` for alpha, the colour
   samples written straight (not premultiplied), as a soft mask without
-  `/Matte` requires.
+  `/Matte` requires. The JPEG marker walk reads frame geometry the way libjpeg
+  and `image/jpeg` do — skipping fill bytes, `X'FF00'` stuffing and extraneous
+  data between segments — because `DrawJPEG` embeds the bytes untouched, and a
+  writer that refuses what every reader of its own output accepts is the one
+  in the wrong.
   **Pixel-identical bitmaps are shared**: each image is content-addressed by its
   *uncompressed* samples, so a repeat is embedded — and compressed — once per
   document and every placement, on any page, references the one XObject.
@@ -177,6 +181,23 @@ confirmed contour-identical to the original; the embedded CFF subset is asserted
 smaller than the whole `CFF` table and re-parsed so each kept glyph still renders
 intact. Tests are deterministic and network-free: they use a synthesised
 TrueType font, a synthesised CFF2 font and a bundled OFL OpenType/CFF font.
+
+**Fuzzing.** `jpegInfo` is the one parser here that reads caller-supplied bytes
+by hand — markers, segment lengths and offsets, every one a number out of the
+file — so `FuzzJPEGInfo` drives it against `image/jpeg` as a differential
+oracle, and `FuzzDrawImageSamples` drives the sample splitter's premultiply
+arithmetic. The seed corpus is committed under `testdata/fuzz/`; CI runs the
+seeds on every pull request and fuzzes each target for a minute.
+
+⛔ The oracle is not "the specification" but *what every consumer of our output
+will have used to read the same bytes*. The property is therefore **not** that
+`jpegInfo` accepts what `image/jpeg` accepts — it accepts more, deliberately,
+since `DrawJPEG` embeds without decoding — but that the two never **agree to
+disagree**: a file both read must have the same dimensions in both, or the PDF
+carries a `/Width` the reader's own decoder contradicts. That found two real
+divergences in the first second of fuzzing, both of them files
+`jpegInfo` refused and every other decoder accepts. See
+*Scope and limitations*.
 
 ## Scope and limitations
 
