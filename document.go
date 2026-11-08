@@ -320,6 +320,12 @@ func (d *Document) Write(w io.Writer) error {
 		node.set("MediaBox", pdfArray{pdfReal(0), pdfReal(0), pdfReal(p.width), pdfReal(p.height)})
 		node.set("Contents", cstream)
 		node.set("Resources", p.resources(fontRefs, imageRefs, formRefs))
+		if p.transition != nil {
+			node.set("Trans", p.transition.dict())
+		}
+		if p.dur > 0 {
+			node.set("Dur", pdfReal(p.dur))
+		}
 		var keys []int
 		key := func(int) int { return -1 }
 		if sw != nil {
