@@ -260,6 +260,11 @@ divergences in the first second of fuzzing, both of them files
   icon, colour and opacity on a page — go-slides carries a slide's speaker
   notes in them. No other annotation type is written, and nothing here draws
   an appearance stream — `go-pdfkit/render` does that when reading.
+- **Page transitions** (`Page.SetTransition`, `Page.SetDisplayDuration`): the
+  `/Trans` dictionary of PDF 32000-1 12.4.4.1 (Table 162) — the style (Split,
+  Blinds, Box, Wipe, Dissolve, Glitter, R, Push, Cover, Uncover, Fade), `/D`,
+  `/Dm`, `/M` and `/Di`, refused where the table says the style does not take
+  the entry or the value — and the page's `/Dur`. Fly is not written.
 - **Bookmarks** (`AddOutlineItem`) nest by level; since v0.16.0
   `AddOutlineItemWith` styles a title bold or italic and points it at a place on
   the page (`[page /XYZ x y null]`) instead of fitting the whole page.

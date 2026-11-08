@@ -79,6 +79,10 @@ type Page struct {
 	// dests are the named destinations anchored on this page; each becomes an entry
 	// in the document's /Dests name tree, jumped to by an internal GoTo link.
 	dests []namedDest
+
+	// transition is the page's /Trans and dur its /Dur (transition.go).
+	transition *Transition
+	dur        float64
 }
 
 // linkAnnot is a clickable rectangle. When dest is empty it opens uri (an external
