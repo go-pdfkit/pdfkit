@@ -1,5 +1,5 @@
-github.com/andybalholm/brotli v1.2.8 h1:H9F6r7RNwzSRsx/lytpIYkbjNFMt2yNBwsJ2+0gpx78=
-github.com/andybalholm/brotli v1.2.8/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
+github.com/andybalholm/brotli v1.3.0 h1:IdkhjSe/+34U+fP7FSR2Q6Poj1hnHUa2GoWmzXJd6qY=
+github.com/andybalholm/brotli v1.3.0/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 h1:2tV76y6Q9BB+NEBasnqvs7e49aEBFI8ejC89PSnWH+4=
 github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707/go.mod h1:qssHWj60/X5sZFNxpG4HBPDHVqxNm4DfnCKgrbZOT+s=
 github.com/dsnet/golib v0.0.0-20171103203638-1ea166775780/go.mod h1:Lj+Z9rebOhdfkVLjJ8T6VcRQv3SXugXy999NBtR9aFY=
@@ -13,12 +13,12 @@ github.com/go-images/images v0.3.0 h1:uj0bNC9HTvMZF4HvHf5XNVlXYB6zAr8uAdbieTMzuv
 github.com/go-images/images v0.3.0/go.mod h1:ep6TePdcpU6ESk2yHuapG9ybfznNsxgHOFOeRKsinZ8=
 github.com/go-opentype/fonts v0.14.0 h1:WHw7k9gkHT1pu9B2yyvd0FWyQqn/4NKFQoKhvMYt3Mo=
 github.com/go-opentype/fonts v0.14.0/go.mod h1:od2QcmdpKo7QCqo6Jb16y4GULk+h2Hhfq6x3xfvn62Q=
-github.com/go-opentype/opentype v0.21.1 h1:axfaZjo6acnY9OcFHC/q5gaSqyc/KjuaNJ6Z7UBOJPI=
-github.com/go-opentype/opentype v0.21.1/go.mod h1:cyTZyPcwVFR4MTHnCj7a6tk2tGIB6deakpefu/apDjg=
+github.com/go-opentype/opentype v0.22.0 h1:AWxuNf8g6F5lFZ6wrp0Z097yrNANbE0F4b+etGtaWtI=
+github.com/go-opentype/opentype v0.22.0/go.mod h1:xzFnB0oUWXuU1AxQl0CgtQpV8iWY7f5/RRGc9diiBZs=
 github.com/go-opentype/shape v0.7.0 h1:hXUkI4xdpkzq31ZYf/6zfkDAgRLZnTjI1q8DWLu5MGQ=
 github.com/go-opentype/shape v0.7.0/go.mod h1:n8pMQ/MH4Oscxwd9J0B7RiZ5gKlD0yagRQKYsAmJ9Rw=
-github.com/go-pdfkit/reader v0.11.0 h1:eJDFA+AWvW/Yo2Y63+wIVylxsq5jFLB7cdnX9tb/1IY=
-github.com/go-pdfkit/reader v0.11.0/go.mod h1:EYHHREPKT/orDzlGiFPnPVPPuaRDLiAYezIr0cCFXaA=
+github.com/go-pdfkit/reader v0.17.0 h1:17MUgAowqA5G6KJQxOpLSyEgy3qeITkBRgFYA1hbRHQ=
+github.com/go-pdfkit/reader v0.17.0/go.mod h1:EYHHREPKT/orDzlGiFPnPVPPuaRDLiAYezIr0cCFXaA=
 github.com/go-richdoc/richdoc v0.7.0 h1:vhHypa0y26ulrOz6Aw1RIzeLjSMsFJyU1SzK5jd90lg=
 github.com/go-richdoc/richdoc v0.7.0/go.mod h1:RhxAcqwoUg1pnTYCiRdKILzOZwOmraO0dMJI4N6yY70=
 github.com/go-typeset/bidi v0.3.1 h1:fsTa0b9txt2SkH7M55EZ06+q3N9C4O0Oerf+SPLLGFs=
@@ -29,8 +29,8 @@ github.com/go-widgets/painter v0.17.1 h1:inOmnCGSiHd4oZx7Zm7PJRDWWSEopnEnvDKEeFu
 github.com/go-widgets/painter v0.17.1/go.mod h1:8kERcZUoWNyLIas1NsMWiYynvvyx+hcB2cNIh0Bx0yc=
 github.com/go-widgets/textinput v0.1.0 h1:ifx1RjbPIWtlokoBLV1ZwlH+0CeixoMbswlqhNvYNmw=
 github.com/go-widgets/textinput v0.1.0/go.mod h1:Y/k3PDtUEMQ/4psCVKdmUStNWa/EsVAMcCKG2lEtQ5c=
-github.com/go-widgets/toolkit v0.376.1 h1:+2ihaGhs4qRQAVU1WQeQl47SXaEn9UnbbU+v0pPk9Ew=
-github.com/go-widgets/toolkit v0.376.1/go.mod h1:Xe0YRNDWLtra6q4v+T75L97CnpnEuvv/ZdXd2pgTCpE=
+github.com/go-widgets/toolkit v0.379.0 h1:JW4uN9lnKKNZU32RGWjGMKieuwyv+L15NEmuwmiksYk=
+github.com/go-widgets/toolkit v0.379.0/go.mod h1:NYwSt10yeWvLUpspTCSLj/JG8oaRezgnPmZTIAO7bHs=
 github.com/go-widgets/vcs v0.1.0 h1:1pZQygSsKBWZepAgsTdqh1bwHBjPwaLM4p7bAAONGnk=
 github.com/go-widgets/vcs v0.1.0/go.mod h1:c2SbtsVVLJUJAf/vOeMKkFWZRFyMAeDrY8rfyUyIevs=
 github.com/google/go-cmp v0.5.5/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
