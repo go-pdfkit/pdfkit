@@ -129,6 +129,43 @@ func TestRefusalsSayWhy(t *testing.T) {
 	}
 }
 
+func TestRotations(t *testing.T) {
+	for rot, want := range map[int64][]float64{180: {-1, 0, 0, -1, 0, 0}, 270: {0, 1, -1, 0, 0, 0}, -90: {0, 1, -1, 0, 0, 0}, 450: {0, -1, 1, 0, 0, 0}} {
+		src := makePDF(t, func(w *reader.Writer) reader.Dict {
+			return reader.Dict{"MediaBox": box(0, 0, 200, 100), "Rotate": reader.Integer(rot), "Resources": reader.Dict{}}
+		}, nil)
+		d := New(Options{})
+		f, err := d.ImportPDFPage(src, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = d.AddPage(A4).DrawForm(f, Rect{Width: 10, Height: 10})
+		var buf bytes.Buffer
+		if err := d.Write(&buf); err != nil {
+			t.Fatal(err)
+		}
+		doc, _, res := outPage(t, buf.Bytes())
+		if got := floats(t, doc, formOf(t, doc, res, "Fm0").Dict.Get("Matrix")); !equalFloats(got, want) {
+			t.Errorf("/Rotate %d: /Matrix = %v, want %v", rot, got, want)
+		}
+	}
+}
+
+func TestAContentsArrayWithAnUnreadableMember(t *testing.T) {
+	// One member refers to itself (it does not resolve), one is a one-element
+	// Filter array: both are read past, the page still imports.
+	src := makePDF(t, func(w *reader.Writer) reader.Dict {
+		a := w.Reserve()
+		w.Put(a, a)
+		s := &reader.Stream{Dict: reader.Dict{"Filter": reader.Array{reader.Name("FlateDecode")}}, Raw: deflate([]byte("q Q"))}
+		return reader.Dict{"MediaBox": box(0, 0, 10, 10), "Resources": reader.Dict{},
+			"Contents": reader.Array{a, w.Add(s), w.Add(stream("0 0 1 1 re"))}}
+	}, nil)
+	if got := written(t, New(Options{}), src); !strings.HasPrefix(got, "q Q\n0 0 1 1 re") {
+		t.Errorf("content = %q", got)
+	}
+}
+
 func TestADisjointCropBoxIsIgnored(t *testing.T) {
 	src := makePDF(t, func(w *reader.Writer) reader.Dict {
 		return reader.Dict{"MediaBox": box(0, 0, 100, 80), "CropBox": box(200, 200, 300, 300), "Resources": reader.Dict{}}

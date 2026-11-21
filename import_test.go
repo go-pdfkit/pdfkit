@@ -63,7 +63,10 @@ func figure(t testing.TB) []byte {
 			"Type": reader.Name("XObject"), "Subtype": reader.Name("Image"),
 			"Width": reader.Integer(2), "Height": reader.Integer(1),
 			"ColorSpace": reader.Name("DeviceGray"), "BitsPerComponent": reader.Integer(8),
+			"StructParent": reader.Integer(3), "Thumb": w.Add(stream("thumbnail")),
 		}, Raw: []byte{0, 255}})
+		loop := w.Reserve() // a reference that is only itself: it does not resolve
+		w.Put(loop, loop)
 		font := w.Reserve()
 		w.Put(font, reader.Dict{"Type": reader.Name("Font"), "Subtype": reader.Name("Type1"),
 			"BaseFont": reader.Name("Helvetica"), "Self": font})
@@ -74,7 +77,11 @@ func figure(t testing.TB) []byte {
 			"Resources": reader.Dict{
 				"XObject": reader.Dict{"Im1": img},
 				"Font":    reader.Dict{"F1": font},
+				"ProcSet": reader.Array{reader.Name("PDF"), reader.Name("Text")},
+				"Properties": reader.Dict{"On": reader.Bool(true), "Title": reader.String("hi"),
+					"Gone": reader.Ref{Num: 9999}, "Loop": loop},
 			},
+			"Group":    reader.Dict{"S": reader.Name("Transparency"), "CS": reader.Name("DeviceRGB")},
 			"Contents": content,
 		}
 	}, nil)
@@ -182,6 +189,28 @@ func TestImportedPageIsAFormXObject(t *testing.T) {
 	img := formOf(t, doc, fres, "Im1")
 	if w, _ := reader.ToInt(img.Dict.Get("Width")); w != 2 || !bytes.Equal(img.Raw, []byte{0, 255}) {
 		t.Errorf("image not copied: width %v raw %v", img.Dict.Get("Width"), img.Raw)
+	}
+	if !isNull(img.Dict.Get("Thumb")) || !isNull(img.Dict.Get("StructParent")) {
+		t.Errorf("the source's thumbnail and structure keys were followed: %v", img.Dict)
+	}
+	props, _ := doc.GetDict(fres, "Properties")
+	if b, _ := props.Get("On").(reader.Bool); !bool(b) {
+		t.Errorf("a boolean did not survive: %v", props)
+	}
+	if s, _ := props.Get("Title").(reader.String); string(s) != "hi" {
+		t.Errorf("a string did not survive: %v", props)
+	}
+	if o, _ := doc.Resolve(props.Get("Gone")); !isNull(o) {
+		t.Errorf("a dangling reference became %v, want null", o)
+	}
+	if o, _ := doc.Resolve(props.Get("Loop")); !isNull(o) {
+		t.Errorf("a reference to itself became %v, want null", o)
+	}
+	if ps, _ := doc.Resolve(fres.Get("ProcSet")); len(ps.(reader.Array)) != 2 {
+		t.Errorf("ProcSet = %v", ps)
+	}
+	if g, ok := doc.GetDict(form.Dict, "Group"); !ok || g.Get("S") != reader.Name("Transparency") {
+		t.Errorf("the transparency group was lost: %v", form.Dict)
 	}
 	fonts, _ := doc.GetDict(fres, "Font")
 	fo, err := doc.Resolve(fonts.Get("F1"))

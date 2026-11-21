@@ -125,13 +125,8 @@ func (d *Document) ImportPDFPage(src []byte, page int) (*Form, error) {
 }
 
 func (d *Document) prepareImport(src []byte, page int) (imp *importedPage, err error) {
-	// The reader is written to refuse, not to panic; a recover costs nothing
-	// and keeps a corrupt figure from costing the document.
-	defer func() {
-		if r := recover(); r != nil {
-			imp, err = nil, fmt.Errorf("pdfkit: import: %v", r)
-		}
-	}()
+	// The reader refuses a corrupt file with an error and never panics: that
+	// is what FuzzImportPDFPage holds, so nothing here recovers.
 	doc, err := reader.Open(src)
 	if err != nil {
 		return nil, fmt.Errorf("pdfkit: import: %w", err)
