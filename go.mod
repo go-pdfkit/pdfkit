@@ -1,19 +1,19 @@
 module github.com/go-pdfkit/pdfkit
 
-go 1.27.2
+go 1.27.4
 
 require (
 	github.com/go-opentype/fonts v0.14.0
-	github.com/go-opentype/opentype v0.22.0
-	github.com/go-pdfkit/reader v0.17.0
+	github.com/go-opentype/opentype v0.24.0
+	github.com/go-pdfkit/reader v0.20.0
 	github.com/go-widgets/painter v0.17.1
-	github.com/go-widgets/toolkit v0.379.0
+	github.com/go-widgets/toolkit v0.392.0
 	rsc.io/pdf v0.1.1
 )
 
 require (
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
-	github.com/go-crdt/crdt v0.57.0 // indirect
+	github.com/go-crdt/crdt v0.59.0 // indirect
 	github.com/go-gfx/gfx v0.41.0 // indirect
 	github.com/go-images/images v0.3.0 // indirect
 	github.com/go-opentype/shape v0.7.0 // indirect
