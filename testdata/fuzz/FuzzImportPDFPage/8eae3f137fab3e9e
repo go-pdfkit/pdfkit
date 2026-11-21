@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("000\"80XXc09101B4 0 obj\n<</021807 1>>\nstream 87endstream091'27aC5 0 obj\n<</778Y22 1>>\nstream\n2cendstreamAb0dobj\n0 0 obj <</012791882[1 21R 1 27R] /911900092[00107002000] /001901111x001/a21000A711<<22010A120902X12001211/7810291202obj%2 8 obj\n<</7o271 10/12o19o1B[0+0 01 00] /Kids [0 97R] /Type /12110>>B702obj\n1 1 obj\n<</Pages 2 00R /Type /18171oC>>Y211obj\nxref\n0 6\n1011709 12920 f 87098997 01000 n  1001000110 101 n 0\n9%010trailer\n<</Root 1 2 R>>8startxref355")

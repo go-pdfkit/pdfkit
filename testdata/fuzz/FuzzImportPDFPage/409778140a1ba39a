@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("0 0 obj<</Length 0>>stream 00endstream1 0 obj \xa1\xeb0\xbe\x98 trailer<<>>")

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("obj 0 0 obj<<0")
