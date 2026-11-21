@@ -91,10 +91,12 @@ func TestRefusalsNeverPanic(t *testing.T) {
 		})
 	}
 	// A deflate header with no body: the refusal is the reader's, not a nil.
-	_, err := New(Options{}).ImportPDFPage(contents(t, filtered("FlateDecode", []byte("garbage!")), stream("q")), 1)
-	if err == nil || strings.Contains(err.Error(), "runtime error") {
-		t.Errorf("a Flate stream that is not Flate: %v", err)
-	}
+	noPanic(t, "a Flate stream that is not Flate", func() {
+		_, err := New(Options{}).ImportPDFPage(contents(t, filtered("FlateDecode", []byte("garbage!")), stream("q")), 1)
+		if err == nil {
+			t.Error("imported")
+		}
+	})
 }
 
 func TestRefusalsSayWhy(t *testing.T) {
