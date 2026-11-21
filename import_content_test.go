@@ -65,6 +65,38 @@ func written(t *testing.T, d *Document, src []byte) string {
 	return string(body)
 }
 
+// noPanic fails the test, as an assertion, if f panics: a refusal must be an
+// error, never a crash that a recover further in happens to turn into one.
+func noPanic(t *testing.T, what string, f func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("%s: panicked: %v", what, r)
+		}
+	}()
+	f()
+}
+
+func TestRefusalsNeverPanic(t *testing.T) {
+	for _, src := range [][]byte{[]byte("not a pdf"), nil, figure(t)[:100]} {
+		noPanic(t, "PDFPageInfo", func() {
+			if info, err := New(Options{}).PDFPageInfo(src, 1); err == nil || info != (PageInfo{}) {
+				t.Errorf("%+v, %v", info, err)
+			}
+		})
+		noPanic(t, "ImportPDFPage", func() {
+			if f, err := New(Options{}).ImportPDFPage(src, 1); err == nil || f != nil {
+				t.Errorf("%v, %v", f, err)
+			}
+		})
+	}
+	// A deflate header with no body: the refusal is the reader's, not a nil.
+	_, err := New(Options{}).ImportPDFPage(contents(t, filtered("FlateDecode", []byte("garbage!")), stream("q")), 1)
+	if err == nil || strings.Contains(err.Error(), "runtime error") {
+		t.Errorf("a Flate stream that is not Flate: %v", err)
+	}
+}
+
 func TestRefusalsSayWhy(t *testing.T) {
 	noBox := makePDF(t, func(w *reader.Writer) reader.Dict { return reader.Dict{"Resources": reader.Dict{}} }, nil)
 	threeNumbers := makePDF(t, func(w *reader.Writer) reader.Dict {

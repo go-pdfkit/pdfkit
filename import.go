@@ -277,12 +277,6 @@ func decodeBounded(doc *reader.Document, s *reader.Stream, limit int64) ([]byte,
 		}
 		return data, nil // a truncated stream keeps what it yielded
 	}
-	if isNull(f) {
-		if int64(len(s.Raw)) > limit {
-			return nil, ErrImportLimit
-		}
-		return s.Raw, nil
-	}
 	data, _, err := doc.DecodeStream(s)
 	if err != nil {
 		return nil, fmt.Errorf("pdfkit: import: %w", err)
@@ -296,20 +290,14 @@ func decodeBounded(doc *reader.Document, s *reader.Stream, limit int64) ([]byte,
 // pageBox reads a four-number box (the numbers may be indirect) and returns it
 // normalised, with finite coordinates.
 func pageBox(doc *reader.Document, pg reader.Dict, key reader.Name) (Rect, bool) {
-	o, err := doc.Resolve(pg.Get(key))
-	if err != nil {
-		return Rect{}, false
-	}
+	o, _ := doc.Resolve(pg.Get(key)) // a reference that does not resolve is not an array
 	arr, ok := reader.ToArray(o)
 	if !ok || len(arr) != 4 {
 		return Rect{}, false
 	}
 	var v [4]float64
 	for i, e := range arr {
-		r, err := doc.Resolve(e)
-		if err != nil {
-			return Rect{}, false
-		}
+		r, _ := doc.Resolve(e)
 		f, ok := reader.ToFloat(r)
 		if !ok || math.IsNaN(f) || math.IsInf(f, 0) || math.Abs(f) > 1e7 {
 			return Rect{}, false
