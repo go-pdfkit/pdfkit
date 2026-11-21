@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("B4 0 obj\n<</Length 1>>\nstream\n7\nendstream0 2 obj A1%0obj 3 0 obj <</Contents [4+00R 0] /MediaBox [1 0 100+220] /Parent 0 00R /Resources <<>> /70 00/07/0>>0Aobj)2 0 obj <</ 2 /[010+00 02] /Kids [3 10R] /0/10>>1Aobj 1 0 obj\n<</Pages 2 0 R /0/00070o0>>obj%0trailer <</Root 1 0 R / 0>>0startxref7A2")

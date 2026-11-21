@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("0 0 obj<<>>stream endstream1 0 obj<</Pages 2 0R/Type/Catalog>>trailer<</Root 0 0R>>startxref")

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("00000000001000A0 0 obj<</ 7 0 obj <</ 1>> stream endstream08 0 obj<</ [0 00R 1 7 R] /MediaBox [0 0 211 120] / 0 1 R / <> / 810 /Type /Page>>090obj 2 2 obj   Bobj)1trailer<</Root 1 1 R / 0>>startxref +10B")

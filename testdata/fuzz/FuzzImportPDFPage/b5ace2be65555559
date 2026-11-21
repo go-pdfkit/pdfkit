@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("018C0C00221800X4 0 obj\n<</x080A9 1>>\nstream\n10endstream1180872C5 2 obj <</B0C7C1 1>> stream(7bendstream1A80obj%3 1 obj <</Contents [2 90290 81R] /MediaBox [0 8+207 190] /Parent 2 00R /21791C0021<<>> /100708 701 /7Y712/10B0>>121Cobj)2 8 obj <</220B0 12/20B01B10[ 97002019] /Kids [3 0 R] /9B771/90011>>2710obj(1 0 obj\n<</Pages 2 0 R /27087/A77010A>>71XZobj)xref\n0 5 8 01trailer\n<</Root 1+0R / 0>>2startxref0355B")

@@ -84,6 +84,16 @@ type Options struct {
 	// should set this to what its own documents need rather than inherit the
 	// default.
 	MaxPixels int
+
+	// MaxImportObjects is the most indirect objects one page imported with
+	// [Document.ImportPDFPage] may reach through its resources. Zero means
+	// [DefaultMaxImportObjects].
+	MaxImportObjects int
+
+	// MaxImportBytes is the most stream bytes one imported page may carry.
+	// Zero means [DefaultMaxImportBytes]. A page past either limit is refused
+	// with [ErrImportLimit] before anything is written.
+	MaxImportBytes int64
 }
 
 // DefaultProducer is the /Producer value used when Options.Producer is empty.
@@ -131,6 +141,10 @@ type Document struct {
 	// once. It is consulted, never iterated: the emitted order and the /Im<i>
 	// numbering come from the images slice, so output stays deterministic.
 	imgCache map[string]*imageXObject
+
+	// importCache maps a source PDF's content address and page number to the
+	// form already made from it (import.go).
+	importCache map[string]*Form
 
 	// structRoot is the root of the logical structure, nil for an untagged
 	// document (structure.go).

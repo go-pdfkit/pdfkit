@@ -8,6 +8,8 @@ import (
 	"errors"
 	"math"
 	"strconv"
+
+	"github.com/go-pdfkit/reader"
 )
 
 // Form is a form XObject (ISO 32000-1:2008, 8.10): a content stream drawn
@@ -28,6 +30,7 @@ type Form struct {
 	*Page
 	bbox Rect
 	name string
+	imp  *importedPage // non-nil for a page of another PDF (import.go)
 }
 
 // NewForm returns an empty form whose form space shows bbox (its BBox
@@ -131,7 +134,12 @@ func (d *Document) buildForms(bd *builder, fontRefs map[*Font]objRef, imageRefs 
 	for _, f := range d.forms {
 		refs[f] = bd.reserve()
 	}
+	convs := map[*reader.Document]*importConv{}
 	for _, f := range d.forms {
+		if f.imp != nil {
+			bd.put(refs[f], d.importedForm(bd, f, convs))
+			continue
+		}
 		dict := newDict()
 		dict.set("Type", pdfName("XObject"))
 		dict.set("Subtype", pdfName("Form"))
