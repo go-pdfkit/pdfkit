@@ -181,9 +181,6 @@ func (d *Document) prepareImport(src []byte, page int) (imp *importedPage, err e
 			w.visit(gd, 0)
 		}
 	}
-	if w.err != nil {
-		return nil, w.err
-	}
 	if err := d.collectContent(imp, pg, w); err != nil {
 		return nil, err
 	}
@@ -198,10 +195,7 @@ func (d *Document) prepareImport(src []byte, page int) (imp *importedPage, err e
 // must be joined (8.10.2: a form has one), which means decoding them, up to the
 // byte limit.
 func (d *Document) collectContent(imp *importedPage, pg reader.Dict, w *importWalk) error {
-	o, err := imp.src.Resolve(pg.Get("Contents"))
-	if err != nil || o == nil {
-		return nil // a page with no content is an empty form
-	}
+	o, _ := imp.src.Resolve(pg.Get("Contents")) // none, or dangling: an empty form
 	var streams []*reader.Stream
 	switch v := o.(type) {
 	case *reader.Stream:
@@ -249,11 +243,11 @@ func (d *Document) collectContent(imp *importedPage, pg reader.Dict, w *importWa
 
 // isNull reports whether o is absent: Dict.Get answers Null for a missing key.
 func isNull(o reader.Object) bool {
-	if o == nil {
+	switch o.(type) {
+	case nil, reader.Null:
 		return true
 	}
-	_, ok := o.(reader.Null)
-	return ok
+	return false
 }
 
 // decodeBounded decodes one content stream into at most limit bytes. A stream
@@ -261,9 +255,6 @@ func isNull(o reader.Object) bool {
 // so a few hundred bytes cannot become a gigabyte; any other filter chain goes
 // through the reader, whose own ceiling is per stream.
 func decodeBounded(doc *reader.Document, s *reader.Stream, limit int64) ([]byte, error) {
-	if limit <= 0 {
-		return nil, ErrImportLimit
-	}
 	f := s.Dict.Get("Filter")
 	if fo, err := doc.Resolve(f); err == nil {
 		f = fo
@@ -405,9 +396,6 @@ func (w *importWalk) fail(format string, a ...any) {
 }
 
 func (w *importWalk) visit(o reader.Object, depth int) {
-	if w.err != nil {
-		return
-	}
 	if depth > maxImportDepth {
 		w.fail("nesting deeper than %d", maxImportDepth)
 		return
@@ -489,13 +477,9 @@ func (c *importConv) value(o reader.Object) pdfValue {
 		if r, ok := c.refs[v.Num]; ok {
 			return r
 		}
-		obj, ok := c.imp.closure[v.Num]
-		if !ok {
-			return pdfNull{}
-		}
 		r := c.bd.reserve()
 		c.refs[v.Num] = r
-		c.bd.put(r, c.value(obj))
+		c.bd.put(r, c.value(c.imp.closure[v.Num])) // every reference was walked: none is missing
 		return r
 	}
 	return pdfNull{}
