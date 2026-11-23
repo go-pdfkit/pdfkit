@@ -155,8 +155,8 @@ func TestAddJPEGHandle(t *testing.T) {
 	if n := countImageObjects(t, doc); n != 1 {
 		t.Errorf("emitted %d image objects, want 1", n)
 	}
-	if _, err := doc.AddJPEG([]byte("not a jpeg")); err == nil {
-		t.Error("AddJPEG accepted garbage")
+	if _, err := doc.AddJPEG([]byte("not a jpeg")); err == nil || !strings.Contains(err.Error(), "not a JPEG") {
+		t.Errorf("AddJPEG(garbage) = %v, want the bad-SOI error", err)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestNilImageHandleIsRefused(t *testing.T) {
 func TestDrawJPEGRefusalLeavesNoTrace(t *testing.T) {
 	doc := New(Options{})
 	p := doc.AddPage(A4)
-	if err := p.DrawJPEG([]byte("not a jpeg"), Rect{Width: 1, Height: 1}); err == nil {
-		t.Error("DrawJPEG accepted garbage")
+	if err := p.DrawJPEG([]byte("not a jpeg"), Rect{Width: 1, Height: 1}); err == nil || !strings.Contains(err.Error(), "not a JPEG") {
+		t.Errorf("DrawJPEG(garbage) = %v, want the bad-SOI error", err)
 	}
 	if p.ContentLen() != 0 || len(doc.images) != 0 {
 		t.Error("a refused JPEG left a trace")
