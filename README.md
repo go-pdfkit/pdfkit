@@ -49,6 +49,16 @@ Go-idiomatic rather than a gem port.
   document and every placement, on any page, references the one XObject.
   `DrawPNG` reads IHDR before it decodes and refuses a picture declaring more
   than `Options.MaxPixels` — see below.
+  **Register once, draw many**: `Document.AddImage(img)` and
+  `Document.AddJPEG(data)` return an `*Image` handle (converted, hashed and
+  compressed once); `Page.DrawImageHandle(h, rect)` and
+  `Page.DrawImageHandleMatrix(h, a, b, c, d, e, f)` place it on any page of that
+  document with no further decode or hash — N draws, one XObject. A nil handle
+  or one from another document is an error.
+- **Budgeting a page** — `Page.ContentLen()` is the content-stream bytes written
+  so far (O(1)), for callers that cap what they emit. `SetAlpha` looks its
+  graphics state up in a map, so a page of 100,000 distinct opacities is linear,
+  not quadratic.
 - **Form XObjects** (ISO 32000-1 §8.10) — `Document.NewForm(bbox)` returns a
   `Form`, drawn with every `Page` method (paths, colours, alpha, shadings,
   images, text, other forms) in its own form space. `Page.DrawForm(f, rect)`
