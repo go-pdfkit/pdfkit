@@ -50,6 +50,65 @@ func imageKey(filter, colorSpace string, w, h, bpc int, samples, alpha []byte) s
 // hashed before they are compressed, so redrawing the same bitmap costs a hash
 // and nothing else.
 func (p *Page) DrawImage(img image.Image, r Rect) {
+	p.placeImage(p.doc.imageXObjectOf(img), r)
+}
+
+// Image is a handle on an image registered once with a [Document] (see
+// [Document.AddImage] and [Document.AddJPEG]). Drawing the handle any number of
+// times, on any page of that document, writes one XObject to the file and pays
+// neither the decode nor the hash again.
+type Image struct {
+	doc *Document
+	x   *imageXObject
+}
+
+// Width returns the image's width in pixels.
+func (i *Image) Width() int { return i.x.width }
+
+// Height returns the image's height in pixels.
+func (i *Image) Height() int { return i.x.height }
+
+// AddImage registers img with the document and returns a handle to draw it
+// with [Page.DrawImageHandle] or [Page.DrawImageHandleMatrix]. The pixels are
+// converted, hashed and compressed here, once; a pixel-identical image already
+// registered (by a handle or by [Page.DrawImage]) is shared, not duplicated.
+func (d *Document) AddImage(img image.Image) *Image {
+	return &Image{doc: d, x: d.imageXObjectOf(img)}
+}
+
+// AddJPEG registers JPEG bytes (embedded untouched, DCTDecode) and returns a
+// handle, like [Document.AddImage]. It returns an error for data
+// [Page.DrawJPEG] would refuse.
+func (d *Document) AddJPEG(data []byte) (*Image, error) {
+	x, err := d.jpegXObjectOf(data)
+	if err != nil {
+		return nil, err
+	}
+	return &Image{doc: d, x: x}, nil
+}
+
+// DrawImageHandle paints the registered image h into the rectangle r (in
+// points), exactly as [Page.DrawImage] would. It returns an error if h is nil
+// or belongs to another document.
+func (p *Page) DrawImageHandle(h *Image, r Rect) error {
+	return p.DrawImageHandleMatrix(h, r.Width, 0, 0, r.Height, r.X, r.Y)
+}
+
+// DrawImageHandleMatrix paints the registered image h under the matrix
+// [a b c d e f] (the same convention as [Page.Transform]): the image fills the
+// unit square, so the matrix is the image's placement, rotation and scale. The
+// page records h as a resource it uses; the XObject itself is written once.
+// It returns an error if h is nil or belongs to another document.
+func (p *Page) DrawImageHandleMatrix(h *Image, a, b, c, d, e, f float64) error {
+	if h == nil || h.doc != p.doc {
+		return fmt.Errorf("pdfkit: image handle is nil or belongs to another document")
+	}
+	p.placeImageMatrix(h.x, a, b, c, d, e, f)
+	return nil
+}
+
+// imageXObjectOf returns the XObject for img, registering it on first sight.
+func (d *Document) imageXObjectOf(img image.Image) *imageXObject {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	rgb, alpha, hasAlpha := samples(img)
@@ -57,7 +116,7 @@ func (p *Page) DrawImage(img image.Image, r Rect) {
 		alpha = nil // a fully opaque image gets no soft mask, and keys as such
 	}
 	key := imageKey("FlateDecode", "DeviceRGB", w, h, 8, rgb, alpha)
-	x := p.doc.imageFor(key, func() *imageXObject {
+	return d.imageFor(key, func() *imageXObject {
 		x := &imageXObject{
 			width:      w,
 			height:     h,
@@ -78,7 +137,6 @@ func (p *Page) DrawImage(img image.Image, r Rect) {
 		}
 		return x
 	})
-	p.placeImage(x, r)
 }
 
 // samples splits an image into 8-bit RGB samples and alpha samples, and
@@ -190,9 +248,20 @@ func (p *Page) DrawPNG(data []byte, r Rect) error {
 // preserving the original compression. Grayscale (1), RGB/YCbCr (3) and CMYK
 // (4) component counts are supported.
 func (p *Page) DrawJPEG(data []byte, r Rect) error {
-	w, h, comps, err := jpegInfo(data)
+	x, err := p.doc.jpegXObjectOf(data)
 	if err != nil {
 		return err
+	}
+	p.placeImage(x, r)
+	return nil
+}
+
+// jpegXObjectOf returns the XObject for JPEG bytes, registering it on first
+// sight.
+func (d *Document) jpegXObjectOf(data []byte) (*imageXObject, error) {
+	w, h, comps, err := jpegInfo(data)
+	if err != nil {
+		return nil, err
 	}
 	cs := ""
 	switch comps {
@@ -203,10 +272,10 @@ func (p *Page) DrawJPEG(data []byte, r Rect) error {
 	case 4:
 		cs = "DeviceCMYK"
 	default:
-		return fmt.Errorf("pdfkit: unsupported JPEG component count %d", comps)
+		return nil, fmt.Errorf("pdfkit: unsupported JPEG component count %d", comps)
 	}
 	key := imageKey("DCTDecode", cs, w, h, 8, data, nil)
-	x := p.doc.imageFor(key, func() *imageXObject {
+	return d.imageFor(key, func() *imageXObject {
 		return &imageXObject{
 			width:      w,
 			height:     h,
@@ -215,17 +284,20 @@ func (p *Page) DrawJPEG(data []byte, r Rect) error {
 			filter:     "DCTDecode",
 			data:       data,
 		}
-	})
-	p.placeImage(x, r)
-	return nil
+	}), nil
 }
 
 // placeImage emits the operators that paint an already-registered XObject
 // into r, and records it as a resource this page uses.
 func (p *Page) placeImage(x *imageXObject, r Rect) {
+	p.placeImageMatrix(x, r.Width, 0, 0, r.Height, r.X, r.Y)
+}
+
+// placeImageMatrix is placeImage under an arbitrary matrix.
+func (p *Page) placeImageMatrix(x *imageXObject, a, b, c, d, e, f float64) {
 	p.usedImages[x] = true
 	p.Save()
-	p.Transform(r.Width, 0, 0, r.Height, r.X, r.Y)
+	p.Transform(a, b, c, d, e, f)
 	p.op("/"+x.name, "Do")
 	p.Restore()
 }

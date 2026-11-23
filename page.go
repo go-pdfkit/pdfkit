@@ -61,6 +61,9 @@ type Page struct {
 	// extGStates records the transparency graphics states this page uses, in
 	// registration order; each becomes a /GS<i> resource.
 	extGStates []extGState
+	// extGIndex maps each state to its place in extGStates, so SetAlpha is
+	// O(1) however many distinct opacities a page uses. Nil until the first.
+	extGIndex map[extGState]int
 
 	// shadings records the gradients this page paints, in registration order;
 	// each becomes a /Sh<i> resource. They are held per page and written into
@@ -348,19 +351,23 @@ type extGState struct {
 // ExtGState resource (ca/CA).
 func (p *Page) SetAlpha(fill, stroke float64) {
 	gs := extGState{fill: fill, stroke: stroke}
-	idx := -1
-	for i, g := range p.extGStates {
-		if g == gs {
-			idx = i
-			break
+	idx, ok := p.extGIndex[gs]
+	if !ok {
+		if p.extGIndex == nil {
+			p.extGIndex = make(map[extGState]int)
 		}
-	}
-	if idx < 0 {
 		idx = len(p.extGStates)
 		p.extGStates = append(p.extGStates, gs)
+		p.extGIndex[gs] = idx
 	}
 	p.op("/GS"+strconv.Itoa(idx), "gs")
 }
+
+// ContentLen returns the number of content-stream bytes the page has
+// accumulated so far, before compression and before the operators the page
+// closes itself with (open marked-content spans). It is O(1), so a caller can
+// budget the bytes it emits as it goes.
+func (p *Page) ContentLen() int64 { return int64(p.buf.Len()) }
 
 // finishContent returns the accumulated content-stream bytes, closing any
 // marked-content span left open: a stream with an unbalanced BDC is invalid.
