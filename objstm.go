@@ -170,17 +170,11 @@ func (d *Document) emitObjectStreams(w io.Writer, bd *builder, catalog, info obj
 	entries := make([]xrefEntry, xrefNum+1) // by object number; 0 stays free
 
 	for i, o := range bd.objs {
-		if cw.err != nil {
-			return cw.err
-		}
 		if !objStmEligible(o) {
 			entries[i+1] = xrefEntry{typ: 1, field2: writeIndirect(cw, &scratch, i+1, o)}
 		}
 	}
 	for ci, c := range chunks {
-		if cw.err != nil {
-			return cw.err
-		}
 		num := len(bd.objs) + ci + 1
 		for idx, n := range c.nums {
 			entries[n] = xrefEntry{typ: 2, field2: num, field3: idx}

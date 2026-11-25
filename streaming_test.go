@@ -163,6 +163,42 @@ func TestWriteReturnsTheFirstWriteError(t *testing.T) {
 	}
 }
 
+type countingFail struct{ calls, after int }
+
+func (c *countingFail) Write(b []byte) (int, error) {
+	c.calls++
+	if c.calls > c.after {
+		return 0, errFull
+	}
+	return len(b), nil
+}
+
+// After the first failure nothing more is offered to the destination.
+func TestNothingIsWrittenAfterTheFirstError(t *testing.T) {
+	for _, os := range []bool{false, true} {
+		w := &countingFail{after: 2}
+		if err := streamDoc(Options{ObjectStreams: os}).Write(w); !errors.Is(err, errFull) {
+			t.Fatalf("err = %v", err)
+		}
+		if w.calls != 3 {
+			t.Errorf("objstm=%v: %d writes reached the destination, want 3 (2 good, 1 failing)", os, w.calls)
+		}
+	}
+}
+
+func TestIDIsDerivedOnlyWhenNotSupplied(t *testing.T) {
+	id := [2][]byte{[]byte("0123456789abcdef"), []byte("fedcba9876543210")}
+	if !New(Options{ID: id}).idSupplied() || New(Options{}).idSupplied() {
+		t.Error("idSupplied does not follow Options.ID")
+	}
+	if cw := New(Options{ID: id}).newCountWriter(io.Discard); cw.h != nil {
+		t.Error("a supplied ID needs no body hash")
+	}
+	if cw := New(Options{}).newCountWriter(io.Discard); cw.h == nil {
+		t.Error("a derived ID needs the body hash")
+	}
+}
+
 func TestWriteErrorWhileManyObjectStreamsAreWritten(t *testing.T) {
 	build := func() *Document {
 		doc := New(Options{ObjectStreams: true})

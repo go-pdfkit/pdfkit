@@ -709,9 +709,6 @@ func (d *Document) emit(w io.Writer, bd *builder, catalog, info objRef, hasInfo 
 
 	offsets := make([]int, len(bd.objs))
 	for i, o := range bd.objs {
-		if cw.err != nil {
-			return cw.err
-		}
 		offsets[i] = writeIndirect(cw, &scratch, i+1, o)
 	}
 
