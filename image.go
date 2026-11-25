@@ -68,6 +68,19 @@ func (i *Image) Width() int { return i.x.width }
 // Height returns the image's height in pixels.
 func (i *Image) Height() int { return i.x.height }
 
+// StoredLen returns the number of stream bytes this image adds to the file once
+// written: its sample data as stored (compressed for a raster, the JPEG bytes
+// themselves for DrawJPEG and AddJPEG), plus its soft mask's when it has
+// alpha. It is the real size, known at registration, so a caller budgeting the
+// output can charge it instead of guessing from the pixel count.
+func (i *Image) StoredLen() int64 {
+	n := int64(len(i.x.data))
+	if i.x.smask != nil {
+		n += int64(len(i.x.smask.data))
+	}
+	return n
+}
+
 // AddImage registers img with the document and returns a handle to draw it
 // with [Page.DrawImageHandle] or [Page.DrawImageHandleMatrix]. The pixels are
 // converted, hashed and compressed here, once; a pixel-identical image already
