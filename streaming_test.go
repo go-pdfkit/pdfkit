@@ -145,15 +145,41 @@ func (f *failAfter) Write(b []byte) (int, error) {
 
 func TestWriteReturnsTheFirstWriteError(t *testing.T) {
 	for _, os := range []bool{false, true} {
-		for _, budget := range []int{0, 10, 300} {
+		// Every cut of the file, so the failure lands in each phase: header,
+		// objects, object streams, cross-reference, trailer.
+		var whole bytes.Buffer
+		if err := streamDoc(Options{ObjectStreams: os}).Write(&whole); err != nil {
+			t.Fatal(err)
+		}
+		for budget := 0; budget < whole.Len(); budget++ {
 			err := streamDoc(Options{ObjectStreams: os}).Write(&failAfter{left: budget})
 			if !errors.Is(err, errFull) {
-				t.Errorf("objstm=%v budget=%d: err = %v, want the writer's error", os, budget, err)
+				t.Fatalf("objstm=%v budget=%d of %d: err = %v, want the writer's error", os, budget, whole.Len(), err)
 			}
 		}
 	}
 	if err := streamDoc(Options{}).Write(io.Discard); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWriteErrorWhileManyObjectStreamsAreWritten(t *testing.T) {
+	build := func() *Document {
+		doc := New(Options{ObjectStreams: true})
+		p := doc.AddPage(A4)
+		for i := 0; i < objStmMaxObjects+100; i++ { // past one object stream
+			p.AddLink(Rect{Width: 1, Height: 1}, "https://example.org/")
+		}
+		return doc
+	}
+	var whole bytes.Buffer
+	if err := build().Write(&whole); err != nil {
+		t.Fatal(err)
+	}
+	for budget := 0; budget < whole.Len(); budget += 509 {
+		if err := build().Write(&failAfter{left: budget}); !errors.Is(err, errFull) {
+			t.Fatalf("budget=%d of %d: err = %v, want the writer's error", budget, whole.Len(), err)
+		}
 	}
 }
 
@@ -182,6 +208,26 @@ func TestImageStoredLen(t *testing.T) {
 	}
 	if !bytes.Contains(b.Bytes(), []byte("/Length "+strconv.Itoa(int(jpg.StoredLen())))) {
 		t.Error("the file does not hold a stream of StoredLen bytes")
+	}
+}
+
+func TestStreamObjectIsWrittenTheWayItIsEncoded(t *testing.T) {
+	mk := func() *pdfStream {
+		return &pdfStream{dict: newDict().set("Filter", pdfName("X")), data: []byte("DATA")}
+	}
+	var enc bytes.Buffer
+	enc.WriteString("7 0 obj\n")
+	mk().encodePDF(&enc)
+	enc.WriteString("\nendobj\n")
+
+	var out bytes.Buffer
+	cw := &countWriter{w: &out}
+	var scratch bytes.Buffer
+	if off := writeIndirect(cw, &scratch, 7, mk()); off != 0 {
+		t.Errorf("first object at offset %d, want 0", off)
+	}
+	if out.String() != enc.String() || cw.n != int64(out.Len()) {
+		t.Errorf("streamed %q (%d counted), encoded %q", out.String(), cw.n, enc.String())
 	}
 }
 

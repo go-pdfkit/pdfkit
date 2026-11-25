@@ -55,6 +55,13 @@ Go-idiomatic rather than a gem port.
   `Page.DrawImageHandleMatrix(h, a, b, c, d, e, f)` place it on any page of that
   document with no further decode or hash — N draws, one XObject. A nil handle
   or one from another document is an error.
+- **Streaming output** — `Document.Write` sends each object to the `io.Writer`
+  as it is built, counting bytes for the cross-reference offsets, instead of
+  assembling the file in one buffer: peak memory above the document is one
+  object's dictionary, not the output (8 images of 4 MiB: 33.6 MB held before,
+  3 KB now), and the bytes are identical. `Image.StoredLen()` is the size an
+  image's streams will occupy in the file, known at registration, for callers
+  that budget the output.
 - **Budgeting a page** — `Page.ContentLen()` is the content-stream bytes written
   so far (O(1)), for callers that cap what they emit. `SetAlpha` looks its
   graphics state up in a map, so a page of 100,000 distinct opacities is linear,

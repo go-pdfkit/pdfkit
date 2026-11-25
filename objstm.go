@@ -159,30 +159,37 @@ func encodeXref(entries []xrefEntry) ([]byte, pdfArray) {
 // document's own; the object streams take the numbers after them and the
 // cross-reference stream the last one, which is what /Size counts.
 func (d *Document) emitObjectStreams(w io.Writer, bd *builder, catalog, info objRef, hasInfo bool) error {
-	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.5\n")
+	cw := d.newCountWriter(w) // see countWriter: the file is written as it is built
+	var scratch bytes.Buffer
+	cw.Write([]byte("%PDF-1.5\n"))
 	// A comment with high bytes marks the file as binary for transfer tools.
-	buf.WriteString("%\xe2\xe3\xcf\xd3\n")
+	cw.Write([]byte("%\xe2\xe3\xcf\xd3\n"))
 
 	chunks := packObjectStreams(bd.objs)
 	xrefNum := len(bd.objs) + len(chunks) + 1
 	entries := make([]xrefEntry, xrefNum+1) // by object number; 0 stays free
 
 	for i, o := range bd.objs {
+		if cw.err != nil {
+			return cw.err
+		}
 		if !objStmEligible(o) {
-			entries[i+1] = xrefEntry{typ: 1, field2: writeIndirect(&buf, i+1, o)}
+			entries[i+1] = xrefEntry{typ: 1, field2: writeIndirect(cw, &scratch, i+1, o)}
 		}
 	}
 	for ci, c := range chunks {
+		if cw.err != nil {
+			return cw.err
+		}
 		num := len(bd.objs) + ci + 1
 		for idx, n := range c.nums {
 			entries[n] = xrefEntry{typ: 2, field2: num, field3: idx}
 		}
-		entries[num] = xrefEntry{typ: 1, field2: writeIndirect(&buf, num, d.objectStream(c))}
+		entries[num] = xrefEntry{typ: 1, field2: writeIndirect(cw, &scratch, num, d.objectStream(c))}
 	}
 
 	// The cross-reference stream lists itself, at the offset startxref names.
-	xrefOff := buf.Len()
+	xrefOff := int(cw.n)
 	entries[xrefNum] = xrefEntry{typ: 1, field2: xrefOff}
 	rows, widths := encodeXref(entries)
 
@@ -194,14 +201,14 @@ func (d *Document) emitObjectStreams(w io.Writer, bd *builder, catalog, info obj
 	if hasInfo {
 		xref.set("Info", info)
 	}
-	id := d.documentID(buf.Bytes())
+	id := d.documentID(cw.h)
 	xref.set("ID", pdfArray{pdfHexString(id[0]), pdfHexString(id[1])})
-	writeIndirect(&buf, xrefNum, &pdfStream{dict: xref, data: d.maybeFlate(xref, rows)})
+	writeIndirect(cw, &scratch, xrefNum, &pdfStream{dict: xref, data: d.maybeFlate(xref, rows)})
 
-	buf.WriteString("startxref\n")
-	buf.WriteString(strconv.Itoa(xrefOff))
-	buf.WriteString("\n%%EOF\n")
-
-	_, err := w.Write(buf.Bytes())
-	return err
+	scratch.Reset()
+	scratch.WriteString("startxref\n")
+	scratch.WriteString(strconv.Itoa(xrefOff))
+	scratch.WriteString("\n%%EOF\n")
+	cw.Write(scratch.Bytes())
+	return cw.err
 }
