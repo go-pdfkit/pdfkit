@@ -222,10 +222,17 @@ type pdfStream struct {
 	data []byte
 }
 
-func (s *pdfStream) encodePDF(b *bytes.Buffer) {
+// encodePDFHead writes the stream's dictionary, with /Length, and the stream
+// keyword: everything before the data. writeIndirect uses it to send the data
+// to the output without copying it into a buffer first.
+func (s *pdfStream) encodePDFHead(b *bytes.Buffer) {
 	s.dict.set("Length", pdfInt(len(s.data)))
 	s.dict.encodePDF(b)
 	b.WriteString("\nstream\n")
+}
+
+func (s *pdfStream) encodePDF(b *bytes.Buffer) {
+	s.encodePDFHead(b)
 	b.Write(s.data)
 	b.WriteString("\nendstream")
 }

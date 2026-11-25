@@ -6,8 +6,8 @@ package pdfkit
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
+	"hash"
 	"io"
 	"sort"
 	"strconv"
@@ -281,6 +281,9 @@ func (bd *builder) add(v pdfValue) objRef {
 // classic cross-reference table, or, when Options.ObjectStreams is set, PDF 1.5
 // with its small objects packed into object streams and a cross-reference
 // stream in place of the table. It returns the first write error encountered.
+// The file is written to w object by object, never assembled in memory, so w
+// sees many small writes (and the large stream bodies as they are): wrap it in
+// a [bufio.Writer] if each write is costly.
 // Calling Write does not consume the document; it may be written more than
 // once.
 func (d *Document) Write(w io.Writer) error {
@@ -696,24 +699,29 @@ func (d *Document) infoDict() *pdfDict {
 
 // emit writes the object bodies, the cross-reference table and the trailer.
 func (d *Document) emit(w io.Writer, bd *builder, catalog, info objRef, hasInfo bool) error {
-	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.7\n")
+	// The file goes to w as it is built (see countWriter): peak memory is one
+	// object, not the whole output.
+	cw := d.newCountWriter(w)
+	var scratch bytes.Buffer
+	cw.Write([]byte("%PDF-1.7\n"))
 	// A comment with high bytes marks the file as binary for transfer tools.
-	buf.WriteString("%\xe2\xe3\xcf\xd3\n")
+	cw.Write([]byte("%\xe2\xe3\xcf\xd3\n"))
 
 	offsets := make([]int, len(bd.objs))
 	for i, o := range bd.objs {
-		offsets[i] = writeIndirect(&buf, i+1, o)
+		offsets[i] = writeIndirect(cw, &scratch, i+1, o)
 	}
 
-	xrefOff := buf.Len()
+	xrefOff := cw.n
 	n := len(bd.objs) + 1
-	buf.WriteString("xref\n")
-	buf.WriteString("0 " + strconv.Itoa(n) + "\n")
-	buf.WriteString("0000000000 65535 f \n")
+	scratch.Reset()
+	scratch.WriteString("xref\n")
+	scratch.WriteString("0 " + strconv.Itoa(n) + "\n")
+	scratch.WriteString("0000000000 65535 f \n")
 	for _, off := range offsets {
-		buf.WriteString(fmt.Sprintf("%010d 00000 n \n", off))
+		scratch.WriteString(fmt.Sprintf("%010d 00000 n \n", off))
 	}
+	cw.Write(scratch.Bytes())
 
 	trailer := newDict()
 	trailer.set("Size", pdfInt(n))
@@ -721,40 +729,32 @@ func (d *Document) emit(w io.Writer, bd *builder, catalog, info objRef, hasInfo 
 	if hasInfo {
 		trailer.set("Info", info)
 	}
-	id := d.documentID(buf.Bytes())
+	id := d.documentID(cw.h)
 	trailer.set("ID", pdfArray{pdfHexString(id[0]), pdfHexString(id[1])})
 
-	buf.WriteString("trailer\n")
-	trailer.encodePDF(&buf)
-	buf.WriteString("\nstartxref\n")
-	buf.WriteString(strconv.Itoa(xrefOff))
-	buf.WriteString("\n%%EOF\n")
-
-	_, err := w.Write(buf.Bytes())
-	return err
+	scratch.Reset()
+	scratch.WriteString("trailer\n")
+	trailer.encodePDF(&scratch)
+	scratch.WriteString("\nstartxref\n")
+	scratch.WriteString(strconv.FormatInt(xrefOff, 10))
+	scratch.WriteString("\n%%EOF\n")
+	cw.Write(scratch.Bytes())
+	return cw.err
 }
 
-// writeIndirect appends object number n, generation 0, with body v to buf as
-// "n 0 obj ... endobj" and returns the offset it starts at, which is what the
-// cross-reference table or stream records for it.
-func writeIndirect(buf *bytes.Buffer, n int, v pdfValue) int {
-	off := buf.Len()
-	buf.WriteString(strconv.Itoa(n))
-	buf.WriteString(" 0 obj\n")
-	v.encodePDF(buf)
-	buf.WriteString("\nendobj\n")
-	return off
+// idSupplied reports whether the caller gave the trailer /ID.
+func (d *Document) idSupplied() bool {
+	return d.opts.ID[0] != nil && d.opts.ID[1] != nil
 }
 
 // documentID returns the trailer /ID pair. A caller-supplied ID is used as-is;
-// otherwise it is derived from the document body so equal documents get equal
-// IDs without consulting a clock.
-func (d *Document) documentID(body []byte) [2][]byte {
-	if d.opts.ID[0] != nil && d.opts.ID[1] != nil {
+// otherwise it is derived from body, the hash of every byte written so far, so
+// equal documents get equal IDs without consulting a clock.
+func (d *Document) documentID(body hash.Hash) [2][]byte {
+	if d.idSupplied() {
 		return d.opts.ID
 	}
-	sum := sha256.Sum256(body)
-	h := sum[:16]
+	h := body.Sum(nil)[:16]
 	return [2][]byte{h, h}
 }
 
